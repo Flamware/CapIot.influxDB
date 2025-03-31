@@ -1,3 +1,4 @@
+// File: routes/router.go
 package routes
 
 import (
@@ -7,13 +8,11 @@ import (
 	"net/http"
 )
 
-// SetupRouter defines all the routes for the API
+// SetupRouter defines all API routes.
 func SetupRouter() *mux.Router {
 	router := mux.NewRouter()
 
-	router.Handle("/write", utils.EnsureValidToken(http.HandlerFunc(controllers.WriteData))).Methods("POST")
-
-	// Register sub-routes
+	router.Handle("/write", utils.CombinedAuthMiddleware(http.HandlerFunc(controllers.WriteData))).Methods("POST")
 	SetupLocationRoutes(router)
 	SetupDeviceRoutes(router)
 

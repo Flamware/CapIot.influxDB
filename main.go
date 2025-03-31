@@ -34,6 +34,12 @@ func main() {
 		return
 	}
 
+	// Initialize Redis
+	err = config.InitRedis()
+	if err != nil {
+		log.Fatal("Error initializing Redis:", err)
+	}
+
 	// Set up routes
 	mux := routes.SetupRouter()
 

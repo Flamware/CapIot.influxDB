@@ -9,5 +9,5 @@ import (
 
 // SetupLocationRoutes defines the routes for location-related operations
 func SetupLocationRoutes(router *mux.Router) {
-	router.Handle("/locations", utils.EnsureValidToken(http.HandlerFunc(controllers.GetLocations))).Methods("GET")
+	router.Handle("/locations", utils.JWTMiddleware(http.HandlerFunc(controllers.GetLocations))).Methods("GET")
 }
