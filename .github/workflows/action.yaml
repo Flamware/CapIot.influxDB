@@ -59,6 +59,6 @@ jobs:
 
       - name: Apply Kubernetes Deployment
         run: |
-          kubectl set image deployment/api-influxdb-deployment api=flamware/capiot-influxdb-api:${{ steps.docker_build.outputs.image_tag }} -n capiot-app
+          kubectl set image deployment/api-influxdb-deployment capiot-influxdb-api-container=flamware/capiot-influxdb-api:${{ steps.docker_build.outputs.image_tag }} -n capiot-app
           kubectl rollout status deployment/api-influxdb-deployment -n capiot-app 
           kubectl get deployment api-influxdb-deployment -n capiot-app -o yaml > api-influxdb-deployment.yaml
