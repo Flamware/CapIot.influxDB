@@ -1,32 +1,29 @@
-# Stage 1: Build the Go API
-FROM golang:1.24-alpine AS builder
+# Stage 1: Build the Go application
+FROM golang:1.24.1-alpine AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy go.mod and go.sum files
+# Copy go.mod and go.sum and download dependencies
 COPY go.mod go.sum ./
+RUN go mod download
+RUN apk update && apk add curl
 
-# Download Go dependencies
-RUN go mod download -x
+# Copy the application source code
+COPY .. .
 
-# Copy the entire project source code
-COPY . .
-
-# Build the Go API executable
-RUN go build -o CapIot.influxDB ./cmd/api/main.go # Adjust the build command and output name as needed
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o api ./cmd/server.go
 
 # Stage 2: Create a minimal runtime image
-FROM alpine:latest AS runtime
+FROM alpine:latest
 
-# Set the working directory
 WORKDIR /app
 
-# Copy the built executable from the builder stage
-COPY --from=builder /app/capi-influxdb-api .
+# Copy the built binary from the builder stage
+COPY --from=builder /app/api ./api
 
-# Expose the port your API listens on (e.g., 8000)
-EXPOSE 8000
+# Expose the port your API listens on
+EXPOSE 8080
 
-# Command to run your Go API
-CMD ["./capi-influxdb-api"]
+# Command to run the executable
+CMD ["./api"]
