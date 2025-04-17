@@ -1,0 +1,14 @@
+# kubernetes/your-api/capiot-influxdb-api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: capiot-influxdb-api-service
+  namespace: capiot-app # Deploy to the capiot-app namespace
+spec:
+  selector:
+    app: capiot-influxdb-api
+  ports:
+    - protocol: TCP
+      port: 8000 # The port you want to expose internally within the cluster
+      targetPort: 8000 # The port your container exposes
+  type: ClusterIP # Use ClusterIP for internal access within capiot-app namespace

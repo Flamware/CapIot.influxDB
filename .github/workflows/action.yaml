@@ -61,7 +61,13 @@ jobs:
         run: |
           # Option 1: Directly modify the YAML using sed before applying
           sed -i "s#image: flamware/capiot-influxdb:latest#image: flamware/capiot-influxdb:${{ env.IMAGE_TAG }}#g" kubernetes/api/influxdb-deployment.yaml
-          kubectl apply -f kubernetes/api/influxdb-deployment.yaml
-          kubectl apply -f kubernetes/api/influxdb-secrets.yaml
-          kubectl apply -f kubernetes/api/influxdb-service.yaml
-          echo "Kubernetes Deployment applied successfully with image tag: ${{ env.IMAGE_TAG }}"
+          
+          kubectl apply -f kubernetes/influxdb/influxdb-deployment.yaml
+          kubectl apply -f kubernetes/influxdb/influxdb-service.yaml
+
+          # Apply your API resources, updating the image tag
+          sed -i "s#image: flamware/capiot-influxDB:latest#image: flamware/capiot-influxDB:${{ env.IMAGE_TAG }}#g" kubernetes/your-api/capiot-influxdb-api-deployment.yaml
+          kubectl apply -f kubernetes/api/capiot-influxdb-api-deployment.yaml
+          kubectl apply -f kubernetes/api/capiot-influxdb-api-service.yaml
+          
+          echo "Kubernetes deployments and services applied successfully"
