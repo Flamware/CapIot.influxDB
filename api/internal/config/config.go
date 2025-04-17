@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"github.com/joho/godotenv"
+	"log"
 	"os"
 )
 
@@ -20,8 +21,9 @@ func LoadConfig() (Config, error) {
 	//load env variables
 	err := godotenv.Load()
 	if err != nil {
-		return Config{}, fmt.Errorf("error loading .env file: %w", err)
+		log.Println("No .env file found, relying on system environment variables")
 	}
+
 	cfg := Config{
 		InfluxDBURL:     os.Getenv("INFLUXDB_URL"),
 		InfluxDBToken:   os.Getenv("INFLUXDB_TOKEN"),
