@@ -63,8 +63,6 @@ jobs:
           kubectl apply -f api/kubernetes/influxdb/influxdb-deployment.yaml
           kubectl apply -f api/kubernetes/influxdb/influxdb-service.yaml
 
-          # Apply your API resources, updating the image tag
-          sed -i "s#image: flamware/capiot-influxDB:latest#image: flamware/capiot-influxDB:${{ env.IMAGE_TAG }}#g" kubernetes/api/capiot-influxdb-api-deployment.yaml
           kubectl apply -f api/kubernetes/api/capiot-influxdb-api-deployment.yaml
           kubectl apply -f api/kubernetes/api/capiot-influxdb-api-service.yaml
 
