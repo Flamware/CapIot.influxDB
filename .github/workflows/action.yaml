@@ -38,6 +38,7 @@ jobs:
             --tag flamware/capiot-influxDB:$IMAGE_TAG \
             .
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV # Make IMAGE_TAG available as an env var for subsequent steps
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
@@ -58,9 +59,9 @@ jobs:
 
       - name: Apply Kubernetes Deployment
         run: |
+          # Option 1: Directly modify the YAML using sed before applying
+          sed -i "s#image: flamware/capiot-influxDB:latest#image: flamware/capiot-influxDB:${{ env.IMAGE_TAG }}#g" kubernetes/api/influxdb-deployment.yaml
           kubectl apply -f kubernetes/api/influxdb-deployment.yaml
           kubectl apply -f kubernetes/api/influxdb-secrets.yaml
           kubectl apply -f kubernetes/api/influxdb-service.yaml
-          echo "Kubernetes Deployment applied successfully"
-    env:
-      IMAGE_TAG: ${{ steps.docker_build.outputs.image_tag }}
+          echo "Kubernetes Deployment applied successfully with image tag: ${{ env.IMAGE_TAG }}"
