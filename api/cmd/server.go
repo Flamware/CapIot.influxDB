@@ -1,0 +1,57 @@
+package main
+
+import (
+	"CapIot.influxDB/internal/config"
+	"CapIot.influxDB/internal/controller"
+	"CapIot.influxDB/internal/repository"
+	"CapIot.influxDB/internal/service"
+	"fmt"
+	"log"
+	"net/http"
+)
+
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Or specify your frontend's origin
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Error loading configuration: %v", err)
+	}
+
+	// Initialize repository, service, and controller
+	repo := repository.NewInfluxDBRepository(cfg.InfluxDBURL, cfg.InfluxDBToken, cfg.InfluxDBOrg)
+	service := service.NewDataService(repo)
+	controller := controller.NewDataController(service)
+
+	// Create a new ServeMux to handle our routes
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sensordata", controller.HandleSensorData)
+	mux.HandleFunc("/api/query", controller.HandleQueryData)
+
+	// Wrap the ServeMux with the CORS middleware
+	corsHandler := enableCORS(mux)
+
+	// Start the server, passing the CORS-enabled handler
+	fmt.Printf("Listening on port %s\n", cfg.Port)
+	err = http.ListenAndServe(":"+cfg.Port, corsHandler)
+	if err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+	// allow CORS
+
+}
