@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: influxdb
-  namespace: monitoring # Replace with your desired namespace
+  namespace: capiot-app # Replace with your desired namespace
 spec:
   serviceName: influxdb
   replicas: 1 # Adjust for clustering if needed
