@@ -13,8 +13,8 @@ const logger = winston.createLogger({
 });
 
 // Configuration MQTT
-const mqttBroker = 'tcp://34.163.43.18:1883';
-const deviceID = 'STM32-Simulator-001';
+const mqttBroker = 'tcp://localhost:1883'; // Change to your broker address
+const deviceID = 'STM32-Simulator-002';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
 const heartbeatTopic = `devices/heartbeat/${deviceID}`;
@@ -70,7 +70,6 @@ client.on('message', (topic, message) => {
         if (topic === statusTopic) {
             handleStatus(payload);
         } else if (topic === heartbeatTopic) {
-            handleHeartbeat(payload);
         } else if (topic === startMonitoringTopic) {
             handleStartMonitoring(payload); // Handle start monitoring message
         }
@@ -193,7 +192,7 @@ function publishSensorDataToHTTP() {
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'flamware.work', // Just the hostname
+        hostname: 'localhost:8000', // Just the hostname
         port: 80,                   // Explicitly specify the port
         path: '/influxdb/sensordata', // Combine the /influxdb prefix from Ingress with your API path
         method: 'POST',
