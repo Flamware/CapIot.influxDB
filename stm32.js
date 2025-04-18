@@ -193,8 +193,7 @@ function publishSensorDataToHTTP() {
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'http://flamware.work',
-        port: 80,
+        hostname: 'http://34.163.157.209',
         path: '/influxdb/sensordata',
         method: 'POST',
         headers: {

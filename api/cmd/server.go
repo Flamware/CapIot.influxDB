@@ -41,17 +41,36 @@ func main() {
 	// Create a new ServeMux to handle our routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sensordata", controller.HandleSensorData)
-	mux.HandleFunc("/api/query", controller.HandleQueryData)
+	mux.HandleFunc("/query", controller.HandleQueryData)
 
 	// Wrap the ServeMux with the CORS middleware
 	corsHandler := enableCORS(mux)
 
 	// Start the server, passing the CORS-enabled handler
-	fmt.Printf("Listening on port %s\n", cfg.Port)
-	err = http.ListenAndServe(":"+cfg.Port, corsHandler)
+	serverAddress := fmt.Sprintf(":%s", cfg.Port)
+	fmt.Printf("Listening on %s\n", serverAddress)
+	err = http.ListenAndServe(serverAddress, corsHandler)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
 	// allow CORS
 
+}
+
+func showURL() string {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Printf("Error loading configuration: %v", err)
+		return ""
+	}
+	return fmt.Sprintf("http://localhost:%s", cfg.Port)
+}
+
+// You would call this function somewhere after the server starts
+// to log the URL. For example, in the main function after ListenAndServe.
+func init() {
+	url := showURL()
+	if url != "" {
+		log.Printf("Server is running at: %s", url)
+	}
 }
