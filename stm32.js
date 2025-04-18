@@ -193,8 +193,9 @@ function publishSensorDataToHTTP() {
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'http://34.163.157.209',
-        path: '/influxdb/sensordata',
+        hostname: 'flamware.work', // Just the hostname
+        port: 80,                   // Explicitly specify the port
+        path: '/influxdb/sensordata', // Combine the /influxdb prefix from Ingress with your API path
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
