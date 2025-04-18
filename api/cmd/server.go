@@ -40,8 +40,8 @@ func main() {
 
 	// Create a new ServeMux to handle our routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sensordata", controller.HandleSensorData)
-	mux.HandleFunc("/query", controller.HandleQueryData)
+	mux.HandleFunc("/influxdb/sensordata", controller.HandleSensorData)
+	mux.HandleFunc("/influxdb/query", controller.HandleQueryData)
 
 	// Wrap the ServeMux with the CORS middleware
 	corsHandler := enableCORS(mux)
