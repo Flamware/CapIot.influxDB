@@ -13,7 +13,7 @@ const logger = winston.createLogger({
 });
 
 // Configuration MQTT
-const mqttBroker = 'tcp://localhost:1883';
+const mqttBroker = 'tcp://34.163.43.18:30001';
 const deviceID = 'STM32-Simulator-001';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
@@ -193,16 +193,15 @@ function publishSensorDataToHTTP() {
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'localhost',
-        port: 8000,
-        path: '/sensordata',
+        hostname: 'http://flamware.work',
+        port: 80,
+        path: '/influxdb/sensordata',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Content-Length': postData.length,
         },
     };
-
     const req = http.request(options, (res) => {
         let responseData = '';
         res.setEncoding('utf8');
