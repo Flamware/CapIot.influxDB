@@ -3,7 +3,7 @@ const winston = require('winston');
 const moment = require('moment');
 const http = require('http');
 
-// Configuration du logger
+// Logger configuration
 const logger = winston.createLogger({
     level: 'info',
     format: winston.format.json(),
@@ -12,52 +12,77 @@ const logger = winston.createLogger({
     ],
 });
 
-// Configuration MQTT
-const mqttBroker = 'tcp://34.163.43.18:1883';
+// MQTT config
+const mqttBroker = 'tcp://mqtt.flamware.work:1883';
 const deviceID = 'STM32-Simulator-001';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
 const heartbeatTopic = `devices/heartbeat/${deviceID}`;
-const startMonitoringTopic = `devices/${deviceID}/monitoring/start`; // New topic
 const dataTopicBase = `iot/data/${deviceID}`;
 
-// Configuration des capteurs simulés avec des plages réalistes et des tendances
+// Updated sensors with min and max thresholds
 const sensors = [
-    { type: 'temperature', id: 'temp-sim-001', currentValue: 20 + Math.random() * 15, variance: 0.5, min: -5, max: 40 }, // Température en °C
-    { type: 'humidity', id: 'hum-sim-001', currentValue: 40 + Math.random() * 40, variance: 2, min: 0, max: 100 },   // Humidité en %
-    { type: 'pressure', id: 'press-sim-001', currentValue: 980 + Math.random() * 50, variance: 5, min: 950, max: 1050 }, // Pression en hPa
+    {
+        type: 'temperature',
+        id: 'temp-sim-001',
+        currentValue: 20 + Math.random() * 15,
+        variance: 0.5,
+        min: -5,
+        max: 40,
+        min_threshold: 10,
+        max_threshold: 35,
+    },
+    {
+        type: 'humidity',
+        id: 'hum-sim-001',
+        currentValue: 40 + Math.random() * 40,
+        variance: 2,
+        min: 0,
+        max: 100,
+        min_threshold: 30,
+        max_threshold: 70,
+    },
+    {
+        type: 'pressure',
+        id: 'press-sim-001',
+        currentValue: 980 + Math.random() * 50,
+        variance: 5,
+        min: 950,
+        max: 1050,
+        min_threshold: 970,
+        max_threshold: 1030,
+    },
 ];
 
-let deviceLocation = ''; // Store the location received from monitoring/start
-let monitoringLocationId;
+let deviceLocation = '';
+let monitoringLocationId = null;
+let deviceStatus = 'available';
 
-// Options de connexion MQTT avec LWT
+// MQTT connection options
 const connectOptions = {
     clientId: deviceID,
     username: 'admin',
     password: 'admin',
     will: {
         topic: `devices/lwt/${deviceID}`,
-        payload: JSON.stringify({ device_id: deviceID, status: 'offline', timestamp: moment().toISOString() }),
+        payload: JSON.stringify({
+            device_id: deviceID,
+            status: 'offline',
+            timestamp: moment().toISOString()
+        }),
         qos: 1,
         retain: false,
     },
 };
 
-// Création du client MQTT
 const client = mqtt.connect(mqttBroker, connectOptions);
 
 client.on('connect', () => {
     logger.info(`${deviceID} connecté au broker MQTT`);
-
-    // Publication immédiate de l'availability
     publishAvailability();
-    publishOnlineStatus(); //send the online status
-    // Abonnement aux topics
-    client.subscribe(statusTopic, { qos: 1 }); //  status
+    client.subscribe(statusTopic, { qos: 1 });
     client.subscribe(heartbeatTopic, { qos: 0 });
-    client.subscribe(startMonitoringTopic, { qos: 1 }); // Subscribe to start monitoring
-
+    heartbeatInterval = setInterval(publishHeartbeat, 5000);
 });
 
 client.on('message', (topic, message) => {
@@ -66,14 +91,8 @@ client.on('message', (topic, message) => {
 
     try {
         const payload = JSON.parse(payloadString);
-
-        if (topic === statusTopic) {
-            handleStatus(payload);
-        } else if (topic === heartbeatTopic) {
-            handleHeartbeat(payload);
-        } else if (topic === startMonitoringTopic) {
-            handleStartMonitoring(payload); // Handle start monitoring message
-        }
+        if (topic === statusTopic) handleDeviceStatus(payload);
+        else if (topic === heartbeatTopic) handleHeartbeat(payload);
     } catch (error) {
         logger.error(`${deviceID} Erreur lors du parsing du message sur ${topic}: ${error}`);
     }
@@ -85,17 +104,23 @@ client.on('error', (error) => {
 
 client.on('disconnect', () => {
     logger.info(`${deviceID} déconnecté du broker MQTT`);
+    deviceStatus = 'offline';
+    monitoringLocationId = null;
+    clearInterval(dataMonitoringInterval);
+    clearInterval(heartbeatInterval);
 });
 
 function publishAvailability() {
     const capabilities = sensors.map(sensor => ({
         captor_type: sensor.type,
         captor_id: sensor.id,
+        min_threshold: sensor.min_threshold,
+        max_threshold: sensor.max_threshold,
     }));
 
     const payload = {
         device_id: deviceID,
-        status: 'online',
+        status: deviceStatus,
         timestamp: moment().toISOString(),
         captors: capabilities,
     };
@@ -109,26 +134,11 @@ function publishAvailability() {
     });
 }
 
-function publishOnlineStatus() {
-    const payload = {
-        device_id: deviceID,
-        status: 'running',
-        timestamp: moment().toISOString(),
-    };
-
-    client.publish(statusTopic, JSON.stringify(payload), { qos: 1, retain: false }, (error) => {
-        if (error) {
-            logger.error(`${deviceID} Erreur lors de la publication du statut en ligne: ${error}`);
-        } else {
-            logger.info(`${deviceID} Statut "running" publié sur ${statusTopic}: ${JSON.stringify(payload)}`);
-        }
-    });
-}
-
 function publishHeartbeat() {
     const payload = {
         device_id: deviceID,
         timestamp: moment().toISOString(),
+        status: deviceStatus,
     };
 
     client.publish(heartbeatTopic, JSON.stringify(payload), { qos: 0, retain: false }, (error) => {
@@ -140,28 +150,66 @@ function publishHeartbeat() {
     });
 }
 
-function handleStatus(payload) {
-    logger.info(`${deviceID} a reçu un statut : ${JSON.stringify(payload)}`);
-}
-
 function handleHeartbeat(payload) {
-    logger.info(`${deviceID} a reçu un heartbeat : ${JSON.stringify(payload)}`);
+    // Extend here if needed
 }
 
-function handleStartMonitoring(payload) {
-    logger.info(`${deviceID} a reçu la commande de démarrage de la surveillance: ${JSON.stringify(payload)}`);
-    if (payload.location_id) {
-        monitoringLocationId = payload.location_id;
-        deviceLocation = monitoringLocationId.toString(); // Ensure location is a string
-        startDataMonitoring(); // Start monitoring and sending data
+let dataMonitoringInterval;
+
+function handleDeviceStatus(payload) {
+    logger.info(`${deviceID} a reçu un statut : ${JSON.stringify(payload)}`);
+    const newStatus = payload.status;
+
+    if (newStatus !== deviceStatus) {
+        deviceStatus = newStatus;
+        clearInterval(dataMonitoringInterval);
+
+        const statusPayload = {
+            device_id: deviceID,
+            status: newStatus,
+            timestamp: moment().toISOString(),
+        };
+
+        client.publish(statusTopic, JSON.stringify(statusPayload), { qos: 1 }, (error) => {
+            if (error) {
+                logger.error(`${deviceID} Error publishing status: ${error}`);
+            } else {
+                logger.info(`${deviceID} Status published on ${statusTopic}: ${JSON.stringify(statusPayload)}`);
+            }
+        });
+
+        if (newStatus === 'Running') {
+            if (payload.location_id) {
+                monitoringLocationId = payload.location_id;
+                deviceLocation = monitoringLocationId.toString();
+                startDataMonitoring();
+            } else {
+                logger.error(`${deviceID} Erreur: La localisation du device est manquante dans le message de statut.`);
+            }
+        } else {
+            logger.info(`${deviceID} Status is ${newStatus}. Stopping data monitoring.`);
+            monitoringLocationId = null;
+        }
     } else {
-        logger.error(`${deviceID} Erreur: La localisation du device est manquante dans le message de démarrage.`);
+        logger.info(`${deviceID} Status déjà à jour: ${newStatus}`);
+        if (newStatus === 'Running' && !dataMonitoringInterval) {
+            if (payload.location_id) {
+                monitoringLocationId = payload.location_id;
+                deviceLocation = monitoringLocationId.toString();
+                startDataMonitoring();
+            } else {
+                logger.error(`${deviceID} Erreur: La localisation du device est manquante in repeated 'Running' status.`);
+            }
+        } else if (newStatus !== 'Running' && dataMonitoringInterval) {
+            clearInterval(dataMonitoringInterval);
+            monitoringLocationId = null;
+        }
     }
 }
 
 function startDataMonitoring() {
-    logger.info(`${deviceID} Démarrage de la surveillance et de la publication des données vers l'API HTTP. Localisation: ${deviceLocation}`);
-    setInterval(publishSensorDataToHTTP, 5000);
+    logger.info(`${deviceID} Démarrage de la surveillance et de la publication des données. Localisation: ${deviceLocation}`);
+    dataMonitoringInterval = setInterval(publishSensorDataToHTTP, 5000);
 }
 
 function publishSensorDataToHTTP() {
@@ -169,61 +217,61 @@ function publishSensorDataToHTTP() {
     const sensorDataArray = [];
 
     sensors.forEach(sensor => {
-        // Simuler la lecture du capteur avec une petite variation aléatoire
         const randomChange = (Math.random() - 0.5) * sensor.variance;
         sensor.currentValue += randomChange;
-
-        // S'assurer que les valeurs restent dans des plages réalistes
         sensor.currentValue = Math.max(sensor.min, Math.min(sensor.max, sensor.currentValue));
 
         const sensorData = {
             time: timestamp,
             location_id: deviceLocation,
             device_id: deviceID,
-            sensor_id: parseInt(sensor.id.split('-').pop(), 10), // Extract the numeric part of the ID
+            sensor_id: parseInt(sensor.id.split('-').pop(), 10),
             field: sensor.type,
             value: parseFloat(sensor.currentValue.toFixed(2)),
+            min_threshold: sensor.min_threshold,
+            max_threshold: sensor.max_threshold,
             timestamp: timestamp,
         };
+
         sensorDataArray.push(sensorData);
     });
+
     sendDataToInfluxDB(sensorDataArray);
 }
 
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'flamware.work', // Just the hostname
-        port: 80,                   // Explicitly specify the port
-        path: '/influxdb/sensordata', // Combine the /influxdb prefix from Ingress with your API path
+        hostname: 'influxdb.flamware.work',
+        port: 80,
+        path: '/influxdb/sensordata',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Content-Length': postData.length,
         },
     };
+
     const req = http.request(options, (res) => {
         let responseData = '';
         res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-            responseData += chunk;
-        });
+        res.on('data', (chunk) => { responseData += chunk; });
         res.on('end', () => {
             if (res.statusCode >= 200 && res.statusCode < 300) {
-                logger.info(`${deviceID} Data successfully sent to InfluxDB API. Status Code: ${res.statusCode}`);
+                logger.info(`${deviceID} Données envoyées à InfluxDB. Code: ${res.statusCode}`);
             } else {
-                logger.error(`${deviceID} Failed to send data to InfluxDB API. Status Code: ${res.statusCode}, Response: ${responseData}`);
+                logger.error(`${deviceID} Échec de l'envoi à InfluxDB. Code: ${res.statusCode}, Réponse: ${responseData}`);
             }
         });
     });
 
     req.on('error', (error) => {
-        logger.error(`${deviceID} HTTP error sending data: ${error}`);
+        logger.error(`${deviceID} Erreur HTTP lors de l'envoi: ${error}`);
     });
 
     req.write(postData);
     req.end();
 }
 
-// Envoi d'un heartbeat régulier
-setInterval(publishHeartbeat, 15000);
+// Start heartbeat
+let heartbeatInterval = setInterval(publishHeartbeat, 5000);

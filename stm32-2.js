@@ -13,7 +13,7 @@ const logger = winston.createLogger({
 });
 
 // Configuration MQTT
-const mqttBroker = 'tcp://localhost:1883'; // Change to your broker address
+const mqttBroker = 'tcp://mqtt.flamware.work:30001';
 const deviceID = 'STM32-Simulator-002';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
@@ -192,7 +192,7 @@ function publishSensorDataToHTTP() {
 function sendDataToInfluxDB(sensorDataArray) {
     const postData = JSON.stringify(sensorDataArray);
     const options = {
-        hostname: 'localhost:8000', // Just the hostname
+        hostname: 'flamware.work', // Just the hostname
         port: 80,                   // Explicitly specify the port
         path: '/influxdb/sensordata', // Combine the /influxdb prefix from Ingress with your API path
         method: 'POST',

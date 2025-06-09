@@ -42,6 +42,11 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/influxdb/sensordata", controller.HandleSensorData)
 	mux.HandleFunc("/influxdb/query", controller.HandleQueryData)
+	// Add the health check route here
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "OK") // Simple response
+	})
 
 	// Wrap the ServeMux with the CORS middleware
 	corsHandler := enableCORS(mux)
