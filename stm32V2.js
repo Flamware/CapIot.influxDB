@@ -14,13 +14,11 @@ const logger = winston.createLogger({
 
 // MQTT config
 const mqttBroker = 'tcp://mqtt.flamware.work:1883';
-const deviceID = 'STM32-Simulator-001';
+const deviceID = 'STM32-Simulator-002';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
 const heartbeatTopic = `devices/heartbeat/${deviceID}`;
-const configTopic = `devices/config/${deviceID}`;
 const dataTopicBase = `iot/data/${deviceID}`;
-const alertTopicBase = `devices/alert`; // NEW: Base for alert topics
 
 // Updated sensors with min and max thresholds
 const sensors = [
@@ -84,7 +82,6 @@ client.on('connect', () => {
     publishAvailability();
     client.subscribe(statusTopic, { qos: 1 });
     client.subscribe(heartbeatTopic, { qos: 0 });
-    client.subscribe(configTopic, { qos: 1 });
     heartbeatInterval = setInterval(publishHeartbeat, 5000);
 });
 
@@ -94,13 +91,8 @@ client.on('message', (topic, message) => {
 
     try {
         const payload = JSON.parse(payloadString);
-        if (topic === statusTopic) {
-            handleDeviceStatus(payload);
-        } else if (topic === heartbeatTopic) {
-            handleHeartbeat(payload);
-        } else if (topic === configTopic) {
-            handleDeviceConfig(payload);
-        }
+        if (topic === statusTopic) handleDeviceStatus(payload);
+        else if (topic === heartbeatTopic) handleHeartbeat(payload);
     } catch (error) {
         logger.error(`${deviceID} Erreur lors du parsing du message sur ${topic}: ${error}`);
     }
@@ -120,8 +112,8 @@ client.on('disconnect', () => {
 
 function publishAvailability() {
     const capabilities = sensors.map(sensor => ({
-        sensor_type: sensor.type,
-        sensor_id: sensor.id,
+        sensors_type: sensor.type,
+        sensors_id: sensor.id,
         min_threshold: sensor.min_threshold,
         max_threshold: sensor.max_threshold,
     }));
@@ -215,25 +207,6 @@ function handleDeviceStatus(payload) {
     }
 }
 
-function handleDeviceConfig(payload) {
-    const { sensor_id, min_threshold, max_threshold } = payload;
-
-    if (!sensor_id || min_threshold === undefined || max_threshold === undefined) {
-        logger.warn(`${deviceID} Configuration invalide reçue: 'sensor_id', 'min_threshold', ou 'max_threshold' manquant. Payload: ${JSON.stringify(payload)}`);
-        return;
-    }
-
-    const targetSensor = sensors.find(s => s.id === sensor_id);
-
-    if (targetSensor) {
-        targetSensor.min_threshold = parseFloat(min_threshold);
-        targetSensor.max_threshold = parseFloat(max_threshold);
-        logger.info(`${deviceID} Configuration mise à jour pour le capteur '${sensor_id}': min_threshold=${targetSensor.min_threshold}, max_threshold=${targetSensor.max_threshold}`);
-    } else {
-        logger.warn(`${deviceID} Capteur '${sensor_id}' non trouvé pour la configuration.`);
-    }
-}
-
 function startDataMonitoring() {
     logger.info(`${deviceID} Démarrage de la surveillance et de la publication des données. Localisation: ${deviceLocation}`);
     dataMonitoringInterval = setInterval(publishSensorDataToHTTP, 5000);
@@ -248,41 +221,13 @@ function publishSensorDataToHTTP() {
         sensor.currentValue += randomChange;
         sensor.currentValue = Math.max(sensor.min, Math.min(sensor.max, sensor.currentValue));
 
-        const value = parseFloat(sensor.currentValue.toFixed(2));
-
-        // --- NEW: Check for alert conditions ---
-        let alertMessage = '';
-        if (value < sensor.min_threshold) {
-            alertMessage = `Value (${value}) below min threshold (${sensor.min_threshold}) for ${sensor.type}.`;
-        } else if (value > sensor.max_threshold) {
-            alertMessage = `Value (${value}) above max threshold (${sensor.max_threshold}) for ${sensor.type}.`;
-        }
-
-        if (alertMessage) {
-            const alertTopic = `${alertTopicBase}/${deviceID}`;
-            const alertPayload = {
-                device_id: deviceID,
-                sensor_id: sensor.id,
-                alert: alertMessage,
-                timestamp: timestamp,
-            };
-            client.publish(alertTopic, JSON.stringify(alertPayload), { qos: 1 }, (error) => {
-                if (error) {
-                    logger.error(`${deviceID} Erreur lors de la publication de l'alerte sur ${alertTopic}: ${error}`);
-                } else {
-                    logger.warn(`${deviceID} Alerte publiée sur ${alertTopic}: ${JSON.stringify(alertPayload)}`);
-                }
-            });
-        }
-        // --- END NEW: Check for alert conditions ---
-
         const sensorData = {
             time: timestamp,
             location_id: deviceLocation,
             device_id: deviceID,
-            sensor_id: parseInt(sensor.id.split('-').pop(), 10), // Assuming ID ends with an integer for sensor_id
+            sensor_id: parseInt(sensor.id.split('-').pop(), 10),
             field: sensor.type,
-            value: value,
+            value: parseFloat(sensor.currentValue.toFixed(2)),
             min_threshold: sensor.min_threshold,
             max_threshold: sensor.max_threshold,
             timestamp: timestamp,
@@ -328,4 +273,5 @@ function sendDataToInfluxDB(sensorDataArray) {
     req.end();
 }
 
+// Start heartbeat
 let heartbeatInterval = setInterval(publishHeartbeat, 5000);

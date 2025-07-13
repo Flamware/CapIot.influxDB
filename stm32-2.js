@@ -88,15 +88,15 @@ client.on('disconnect', () => {
 
 function publishAvailability() {
     const capabilities = sensors.map(sensor => ({
-        captor_type: sensor.type,
-        captor_id: sensor.id,
+        sensors_type: sensor.type,
+        sensors_id: sensor.id,
     }));
 
     const payload = {
         device_id: deviceID,
         status: 'online',
         timestamp: moment().toISOString(),
-        captors: capabilities,
+        sensors: capabilities,
     };
 
     client.publish(availabilityTopic, JSON.stringify(payload), { qos: 1, retain: false }, (error) => {
