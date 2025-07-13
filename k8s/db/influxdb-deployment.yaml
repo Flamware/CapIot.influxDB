@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: influxdb-deployment
+  namespace: capiot # This Deployment will be in the 'capiot' namespace
+  labels:
+    app: influxdb
+spec:
+  replicas: 1 # For production, consider StatefulSet for better state management
+  selector:
+    matchLabels:
+      app: influxdb
+  template:
+    metadata:
+      labels:
+        app: influxdb
+    spec:
+      containers:
+        - name: influxdb
+          image: influxdb:2.7.0 # Using a specific stable version
+          ports:
+            - containerPort: 8086 # Default InfluxDB HTTP API port
+          env:
+            # Initial setup variables - retrieved from Secrets
+            - name: DOCKER_INFLUXDB_INIT_MODE
+              value: "setup"
+            - name: DOCKER_INFLUXDB_INIT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: INFLUXDB_USERNAME
+            - name: DOCKER_INFLUXDB_INIT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: INFLUXDB_PASSWORD
+            - name: DOCKER_INFLUXDB_INIT_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-org-bucket
+                  key: INFLUXDB_ORG
+            - name: DOCKER_INFLUXDB_INIT_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-org-bucket
+                  key: INFLUXDB_BUCKET
+            - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: INFLUXDB_ADMIN_TOKEN
+            # Optional: data retention (e.g., 30 days)
+            # - name: DOCKER_INFLUXDB_INIT_RETENTION
+            #   value: "30d"
+          volumeMounts:
+            - name: influxdb-storage
+              mountPath: /var/lib/influxdb2 # Standard InfluxDB data directory
+          resources: # Recommended: set resource requests and limits
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: influxdb-storage
+          persistentVolumeClaim:
+            claimName: influxdb-data-pvc # Refers to the PVC created above
