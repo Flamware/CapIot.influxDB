@@ -67,14 +67,15 @@ const connectOptions = {
     username: 'admin',
     password: 'admin',
     will: {
-        topic: `devices/lwt/${deviceID}`,
+        // --- CHANGE HERE: LWT topic is the availability topic ---
+        topic: availabilityTopic, // Use the same topic as initial availability
         payload: JSON.stringify({
             device_id: deviceID,
-            status: 'offline',
+            status: 'offline', // Indicate offline status
             timestamp: moment().toISOString()
         }),
         qos: 1,
-        retain: false,
+        retain: true, // Make the LWT message retained as well
     },
 };
 
@@ -134,11 +135,12 @@ function publishAvailability() {
         sensors: capabilities,
     };
 
-    client.publish(availabilityTopic, JSON.stringify(payload), { qos: 1, retain: false }, (error) => {
+    // --- CHANGE HERE: Set retain to true ---
+    client.publish(availabilityTopic, JSON.stringify(payload), { qos: 1, retain: true }, (error) => {
         if (error) {
             logger.error(`${deviceID} Erreur lors de la publication de l'availability: ${error}`);
         } else {
-            logger.info(`${deviceID} Availability publiée sur ${availabilityTopic}: ${JSON.stringify(payload)}`);
+            logger.info(`${deviceID} Availability publiée sur ${availabilityTopic}: ${JSON.stringify(payload)} (retained)`);
         }
     });
 }
