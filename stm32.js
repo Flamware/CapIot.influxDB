@@ -13,8 +13,8 @@ const logger = winston.createLogger({
 });
 
 // MQTT config
-const mqttBroker = 'tcp://mqtt.flamware.work:1883';
-const deviceID = 'STM32-Simulator-003';
+const mqttBroker = 'mqtt://localhost:1883';
+const deviceID = 'STM32-Simulator-001';
 const availabilityTopic = `devices/available/${deviceID}`;
 const statusTopic = `devices/status/${deviceID}`;
 const heartbeatTopic = `devices/heartbeat/${deviceID}`;
