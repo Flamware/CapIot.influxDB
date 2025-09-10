@@ -82,7 +82,6 @@ function publishComponentDataToHTTP(client, deviceID, deviceLocation, components
             if (error) {
                 logger.error(`${deviceID} Erreur lors de la publication des heures de fonctionnement pour ${component.component_id}: ${error}`);
             } else {
-                logger.info(`${deviceID} Heures de fonctionnement publiées pour ${component.component_id}: ${component.running_hours}`);
             }
         });
 
@@ -111,6 +110,7 @@ function publishComponentDataToHTTP(client, deviceID, deviceLocation, components
             const randomChange = (Math.random() - 0.5) * component.variance;
             component.currentValue += randomChange;
             component.currentValue = Math.max(component.min, Math.min(component.max, component.currentValue));
+            console.log("Current Value for ", component.component_name, ":", component.currentValue);
             const value = parseFloat(component.currentValue.toFixed(2));
             if (component.status !== 'obsolete' && (value < component.min_threshold || value > component.max_threshold)) {
                 component.status = 'warning';

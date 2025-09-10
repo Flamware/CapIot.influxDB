@@ -202,7 +202,6 @@ function publishHeartbeat() {
         if (error) {
             logger.error(`${deviceID} Erreur lors de la publication du heartbeat: ${error}`);
         } else {
-            logger.info(`${deviceID} Heartbeat publié sur ${heartbeatTopic}: ${JSON.stringify(payload)}`);
         }
     });
 }
@@ -320,7 +319,6 @@ function publishComponentDataToHTTP() {
             component.currentValue += randomChange;
             component.currentValue = Math.max(component.min, Math.min(component.max, component.currentValue));
             const value = parseFloat(component.currentValue.toFixed(2));
-            if (component.status !== 'obsolete' && (value < component.min_threshold || value > component.max_threshold)) {
                 component.status = 'warning';
                 const alertMessage = `Value (${value}) is outside thresholds for ${component.component_subtype}.`;
                 const alertTopic = `${alertTopicBase}/${deviceID}`;

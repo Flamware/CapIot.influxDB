@@ -84,7 +84,6 @@ function publishHeartbeat(client, deviceID, topic, deviceStatus) {
         if (error) {
             logger.error(`${deviceID} Erreur lors de la publication du heartbeat: ${error}`);
         } else {
-            logger.info(`${deviceID} Heartbeat publié sur ${topic}: ${JSON.stringify(payload)}`);
         }
     });
 }
@@ -162,7 +161,6 @@ function publishComponentRunningHoursToMQTT(client, deviceID, topic, components)
                 if (error) {
                     logger.error(`${deviceID} Erreur lors de la publication des heures de fonctionnement: ${error}`);
                 } else {
-                    logger.info(`${deviceID} Heures de fonctionnement publiées pour ${component.component_id}: ${component.running_hours}`);
                 }
             });
         }

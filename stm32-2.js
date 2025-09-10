@@ -156,7 +156,6 @@ function publishHeartbeat() {
         if (error) {
             logger.error(`${deviceID} Erreur lors de la publication du heartbeat: ${error}`);
         } else {
-            logger.info(`${deviceID} Heartbeat publié sur ${heartbeatTopic}: ${JSON.stringify(payload)}`);
         }
     });
 }
