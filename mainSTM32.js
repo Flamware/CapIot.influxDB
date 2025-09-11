@@ -123,36 +123,36 @@ client.on('connect', () => {
 
 client.on('message', (topic, message) => {
     const payloadString = message.toString();
-    logger.info(`${deviceID} a reçu un message sur le topic ${topic}: ${payloadString}`);
 
     try {
         const payload = JSON.parse(payloadString);
+        logger.info(`${deviceID} Message reçu sur ${topic}: ${payloadString}`);
         if (topic === configTopic) {
             mqttService.handleDeviceConfig(components, payload);
         } else if (topic === commandsTopic) {
             const { command, component_id, location_id } = payload;
+            console.log(command, component_id, location_id);
             switch (command) {
-                case 'Running':
+                case 'Start':
                     if (location_id) {
                         monitoringLocationId = location_id;
                         deviceLocation = monitoringLocationId.toString();
                         startDataMonitoring();
                         deviceStatus = 'running';
-                        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running', false);
+                        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'Running', false);
                     } else {
                         logger.error(`${deviceID} Commande 'start_monitoring' sans 'location_id'.`);
                     }
                     break;
-                case 'stop_monitoring':
+                case 'Stop':
                     if (dataMonitoringInterval) {
                         clearInterval(dataMonitoringInterval);
-                        monitoringLocationId = null;
-                        deviceStatus = 'available';
-                        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'available', false);
-                        logger.info(`${deviceID} Surveillance des données arrêtée.`);
                     }
+                    monitoringLocationId = null;
+                    mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'Online', false);
+                    logger.info(`${deviceID} Surveillance des données arrêtée.`);
                     break;
-                case 'reset_component_timer':
+                case 'Reset':
                     mqttService.handleResetComponentTimer(client, deviceID, statusTopic, components, component_id);
                     break;
                 default:
