@@ -48,6 +48,9 @@ function publishAvailability(client, deviceID, topic, components, deviceStatus) 
         component_type: component.component_type,
         component_subtype: component.component_subtype,
         max_running_hours: component.max_running_hours,
+        // Ces champs sont ajoutés pour que le tableau de bord sache qu'ils sont configurables.
+        min_threshold: component.min_threshold,
+        max_threshold: component.max_threshold,
     }));
 
     const payload = {
@@ -89,20 +92,34 @@ function publishHeartbeat(client, deviceID, topic, deviceStatus) {
 }
 
 /**
- * Gère les commandes de configuration du device.
+ * Gère les commandes de configuration du device pour les seuils et les heures de fonctionnement.
  * @param {Array} components Les composants du device.
  * @param {object} payload Le payload du message.
  */
 function handleDeviceConfig(components, payload) {
-    const { component_id, min_threshold, max_threshold } = payload;
+    const { component_id, min_threshold, max_threshold, max_running_hours } = payload;
     const targetComponent = components.find(c => c.component_id === component_id);
 
-    if (targetComponent && targetComponent.component_type === 'sensor') {
-        targetComponent.min_threshold = parseFloat(min_threshold);
-        targetComponent.max_threshold = parseFloat(max_threshold);
-        logger.info(`Config. mise à jour pour le composant '${targetComponent.component_id}': min=${targetComponent.min_threshold}, max=${targetComponent.max_threshold}`);
-    } else {
-        logger.warn(`Composant '${component_id}' non trouvé ou n'est pas un capteur pour la configuration.`);
+    if (!targetComponent) {
+        logger.warn(`Composant '${component_id}' non trouvé pour la configuration.`);
+        return;
+    }
+
+    if (min_threshold !== undefined && max_threshold !== undefined) {
+        // La configuration des seuils ne s'applique qu'aux capteurs
+        if (targetComponent.component_type === 'sensor') {
+            targetComponent.min_threshold = parseFloat(min_threshold);
+            targetComponent.max_threshold = parseFloat(max_threshold);
+            logger.info(`Config. mise à jour pour le capteur '${targetComponent.component_id}': min=${targetComponent.min_threshold}, max=${targetComponent.max_threshold}`);
+        } else {
+            logger.warn(`Configuration de seuils reçue pour le composant non-capteur '${targetComponent.component_id}'.`);
+        }
+    }
+
+    if (max_running_hours !== undefined) {
+        // La configuration des heures de fonctionnement s'applique à tous les types de composants
+        targetComponent.max_running_hours = parseFloat(max_running_hours);
+        logger.info(`Config. mise à jour pour le composant '${targetComponent.component_id}': max_running_hours=${targetComponent.max_running_hours}`);
     }
 }
 
@@ -140,6 +157,40 @@ function handleResetComponentTimer(client, deviceID, statusTopic, components, co
 }
 
 /**
+ * Gère la commande de mise à jour des heures de fonctionnement d'un composant.
+ * @param {object} client Le client MQTT.
+ * @param {string} deviceID L'ID du device.
+ * @param {string} statusTopic Le topic de statut.
+ * @param {Array} components Les composants du device.
+ * @param {string} component_id L'ID du composant à mettre à jour.
+ * @param {number} hours La nouvelle valeur des heures de fonctionnement.
+ */
+function handleSetComponentHours(client, deviceID, statusTopic, components, component_id, hours) {
+    const targetComponent = components.find(c => c.component_id === component_id);
+
+    if (targetComponent) {
+        targetComponent.running_hours = parseFloat(hours);
+        logger.info(`${deviceID} Heures de fonctionnement du composant '${targetComponent.component_id}' mises à jour: ${targetComponent.running_hours}.`);
+        client.publish(`${statusTopic}/set_hours`, JSON.stringify({
+            device_id: deviceID,
+            component_id: targetComponent.component_id,
+            running_hours: targetComponent.running_hours,
+            status: 'set_success',
+            timestamp: moment().toISOString()
+        }), { qos: 1 });
+    } else {
+        logger.warn(`${deviceID} Impossible de mettre à jour les heures de fonctionnement: Composant '${component_id}' non trouvé.`);
+        client.publish(`${statusTopic}/set_hours`, JSON.stringify({
+            device_id: deviceID,
+            component_id: component_id,
+            status: 'set_failed',
+            error: 'Component not found',
+            timestamp: moment().toISOString()
+        }), { qos: 1 });
+    }
+}
+
+/**
  * Publie les heures de fonctionnement des composants via MQTT.
  * @param {object} client Le client MQTT.
  * @param {string} deviceID L'ID du device.
@@ -160,7 +211,6 @@ function publishComponentRunningHoursToMQTT(client, deviceID, topic, components)
             client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
                 if (error) {
                     logger.error(`${deviceID} Erreur lors de la publication des heures de fonctionnement: ${error}`);
-                } else {
                 }
             });
         }
@@ -173,5 +223,6 @@ module.exports = {
     publishHeartbeat,
     handleDeviceConfig,
     handleResetComponentTimer,
+    handleSetComponentHours,
     publishComponentRunningHoursToMQTT
 };
