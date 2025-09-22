@@ -1,0 +1,45 @@
+@startuml
+!theme mars
+
+title Secure Device Connectivity to InfluxDB
+
+box "IoT System Backend" #LightBlue
+    participant "STM32 Device" as D
+end box
+
+box "Application Layer" #LightGreen
+    participant "API Gateway" as API
+    database "MongoDB (Device Registry)" as MDB
+    participant "InfluxDB API" as InfluxAPI
+end box
+
+note right of D : Device has unique API_TOKEN stored securely.
+
+' Device Initialization & Registration (Pre-deployment/Provisioning)
+MDB <-- U : Admin Registers Device & Generates API_TOKEN
+U -> MDB : Store {deviceID, API_TOKEN, etc.}
+note right of U : User/Admin manages device in MongoDB.
+
+' Device Connection Flow
+D -> API : HTTPS POST /influxdb/componentdata\nHeader: Authorization: Bearer <API_TOKEN>
+activate API
+note right of D : Encrypted communication (TLS/SSL).
+
+API -> MDB : Query: Validate API_TOKEN for deviceID
+activate MDB
+MDB --> API : Response: {isValid: true/false, deviceID}
+deactivate MDB
+
+alt Token Valid
+    API -> InfluxAPI : Forward Data to InfluxDB
+    activate InfluxAPI
+    InfluxAPI --[#blue]-> API : InfluxDB Write Acknowledged (2xx)
+    deactivate InfluxAPI
+    API --[#green]-> D : HTTP Response (200 OK)
+else Token Invalid or Missing
+    API --[#red]-> D : HTTP Response (401 Unauthorized / 403 Forbidden)
+    note right of API : Reject request, log security alert.
+end alt
+deactivate API
+
+@enduml

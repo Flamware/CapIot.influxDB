@@ -1,15 +1,28 @@
-@startuml STM32_Activity
+@startuml STM32_Activity_Updated
+
+title Flux d'activité du Simulateur STM32
 
 start
 
 :Initialisation du device;
 :Configurer logger et composants;
+
+:Obtention du token de provisioning;
+:POST /influxdb/provisioning;
+if (Token reçu ?) then (oui)
+    :Stocker le token d'authentification;
+else (non)
+    :Log erreur de provisioning;
+    stop
+endif
+
 :Connexion MQTT;
 
 if (Connexion réussie ?) then (oui)
     :Publier disponibilité (availability);
     :Publier status "online";
 else (non)
+    :Log erreur de connexion MQTT;
     stop
 endif
 
@@ -64,6 +77,10 @@ while (Device en ligne ?) is (oui)
 
     :Générer données pour chaque composant;
     :Vérifier alertes sur valeurs et running_hours;
+
+    :POST /influxdb/sensordata/{deviceID}/{locationID};
+    :POST /influxdb/metrics/{deviceID};
+
     :Publier données et alertes MQTT;
 endwhile
 

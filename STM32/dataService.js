@@ -1,6 +1,19 @@
 const moment = require('moment');
 const axios = require('axios');
 
+// Declare authToken here to make it accessible to all functions.
+let authToken = null;
+
+/**
+ * Sets the authentication token.
+ *
+ * @param {string} token The token to be stored.
+ */
+const setAuthToken = (token) => {
+    authToken = token;
+    console.log("Authentication token has been set.");
+};
+
 /**
  * Generates new simulated data for a given component.
  *
@@ -33,27 +46,37 @@ const publishComponentData = async (
     alertTopicBase,
     runningHoursTopic,
 ) => {
+    // Check for token before making the request
+    if (!authToken) {
+        console.error("Error: Auth token is not set. Cannot publish component data.");
+        return;
+    }
+
     const timestamp = moment().toISOString();
 
     // Publish data for each component using POST request
-    const apiUrl = 'http://localhost:8000/influxdb/sensordata';
+    const apiUrl = `http://localhost:8000/influxdb/sensordata/${deviceID}/${deviceLocation}`;
 
     const sensors = components.filter(c => c.component_type === 'sensor');
     const dataPayload = sensors.map(component => {
         const value = generateData(component);
-            return {
-                device_id: deviceID,
-                location_id: deviceLocation,
-                sensor_id: component.component_id,
-                value: parseFloat(value.toFixed(2)), // keep 2 decimals but as number
-                field: component.component_subtype,
-                timestamp: timestamp,
-            };
+        return {
+            device_id: deviceID,
+            location_id: deviceLocation,
+            sensor_id: component.component_id,
+            value: parseFloat(value.toFixed(2)), // keep 2 decimals but as number
+            field: component.component_subtype,
+            timestamp: timestamp,
+        };
     });
     console.log(`Prepared component data payload: ${JSON.stringify(dataPayload)}`);
 
     try {
-        await axios.post(apiUrl, dataPayload);
+        await axios.post(apiUrl, dataPayload, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
         console.log(`Published component data to InfluxDB: ${JSON.stringify(dataPayload)}`);
     } catch (error) {
         console.error(`Error publishing component data to InfluxDB: ${error.message}`);
@@ -124,6 +147,12 @@ const publishComponentData = async (
  * @param {string} consumptionTopic The topic for power consumption updates.
  */
 const publishConsumptionData = (client, deviceID, consumptionTopic) => {
+    // Check for token before making the request
+    if (!authToken) {
+        console.error("Error: Auth token is not set. Cannot publish consumption data.");
+        return;
+    }
+
     const timestamp = moment().toISOString();
 
     // Simulate voltage and current
@@ -141,21 +170,25 @@ const publishConsumptionData = (client, deviceID, consumptionTopic) => {
     };
 
     client.publish(consumptionTopic, JSON.stringify(consumptionPayload), { qos: 1 });
-    console.log(`Published consumption data: ${JSON.stringify(consumptionPayload)}`);
+    console.log(`Published consumption data to broker: ${JSON.stringify(consumptionPayload)}`);
 
     //publish to influxdb
-    const apiUrl = 'http://localhost:8000/influxdb/metrics';
-    axios.post(apiUrl, consumptionPayload)
+    const apiUrl = `http://localhost:8000/influxdb/metrics/${deviceID}`;
+    axios.post(apiUrl, consumptionPayload, {
+        headers: {
+            'Authorization': `Bearer ${authToken}`
+        }
+    })
         .then(() => {
             console.log(`Published consumption data to InfluxDB: ${JSON.stringify(consumptionPayload)}`);
         })
         .catch(error => {
             console.error(`Error publishing consumption data to InfluxDB: ${error.message}`);
         });
-
 };
 
 module.exports = {
     publishComponentData,
     publishConsumptionData,
+    setAuthToken, // Added to the module exports
 };

@@ -6,6 +6,7 @@ const moment = require('moment');
 const mqttService = require('./mqttService');
 const dataService = require('./dataService');
 const handleSchedule = require('./handleSchedule');
+const {getProvisioningToken} = require("./auth");
 
 /**
  * @typedef {Object} Schedule
@@ -37,7 +38,7 @@ const handleSchedule = require('./handleSchedule');
  *
  * @param {string} deviceID The unique ID for the device.
  */
-function createStm32Simulator(deviceID) {
+async function createStm32Simulator(deviceID) {
     // Logger configuration for this specific device
     const logger = winston.createLogger({
         level: 'info',
@@ -52,6 +53,9 @@ function createStm32Simulator(deviceID) {
             filename: `${deviceID}.log`
         })],
     });
+
+    // Provisioning URL
+    const API_PROVISIONING_URL = 'http://localhost:8000/influxdb/provisioning';
 
     // MQTT config
     const mqttBroker = 'mqtt://localhost:1883';
@@ -112,6 +116,15 @@ function createStm32Simulator(deviceID) {
     let deviceStatus = 'offline';
     let isFollowingSchedule = false;
     let deviceSchedules = [];
+
+    // --- PROVISIONING STEP ---
+    try {
+        const provisioningToken = await getProvisioningToken(deviceID, API_PROVISIONING_URL);
+        dataService.setAuthToken(provisioningToken);
+    } catch (error) {
+        logger.error(`Failed to provision device ${deviceID}. Simulator will not start.`);
+        return; // Exit if provisioning fails
+    }
 
     const connectOptions = {
         clientId: deviceID,

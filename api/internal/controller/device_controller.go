@@ -5,10 +5,17 @@ import (
 	"CapIot.influxDB/internal/service" // Use your actual module name
 	"encoding/json"
 	"fmt"
+	"github.com/go-resty/resty/v2"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 )
+
+type ProvisioningResponse struct {
+	Token string `json:"provisioning_token"`
+}
 
 // DataController handles HTTP requests for sensor data.
 type DataController struct {
@@ -68,8 +75,8 @@ func (dc *DataController) HandleQueryData(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	req.LocationID = r.Form.Get("locationId")
-	req.DeviceID = r.Form.Get("deviceId")
+	req.LocationID = r.Form.Get("locationID")
+	req.DeviceID = r.Form.Get("deviceID")
 	req.SensorType = r.Form["sensorType[]"]
 	req.WindowPeriod = r.Form.Get("windowPeriod")
 	req.TimeRangeStart = r.Form.Get("timeRangeStart")
@@ -77,7 +84,7 @@ func (dc *DataController) HandleQueryData(w http.ResponseWriter, r *http.Request
 
 	// Basic validation in the controller
 	if req.LocationID == "" {
-		http.Error(w, "locationId is required", http.StatusBadRequest)
+		http.Error(w, "locationID is required", http.StatusBadRequest)
 		return
 	}
 	if req.DeviceID == "" {
@@ -150,9 +157,9 @@ func (c *DataController) HandleGetConsumptionData(w http.ResponseWriter, r *http
 	var req models.ConsumptionQueryRequest
 
 	// Get the device_id from the query parameters.
-	req.DeviceID = r.URL.Query().Get("device_id")
+	req.DeviceID = r.URL.Query().Get("deviceID")
 	if req.DeviceID == "" {
-		http.Error(w, "device_id is required", http.StatusBadRequest)
+		http.Error(w, "deviceID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -183,4 +190,80 @@ func (c *DataController) HandleGetConsumptionData(w http.ResponseWriter, r *http
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
+}
+
+// HandleProvisioning acts as a proxy to a provisioning endpoint.
+func (c *DataController) HandleProvisioning(w http.ResponseWriter, r *http.Request) {
+	// Define a struct to hold the request body
+	var requestBody struct {
+		DeviceID string `json:"deviceID"`
+	}
+
+	// Decode the JSON request body
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("Error decoding request body: %v", err)
+		return
+	}
+
+	// Get the deviceID from the decoded body
+	deviceID := requestBody.DeviceID
+	if deviceID == "" {
+		http.Error(w, "deviceID is required in the request body", http.StatusBadRequest)
+		log.Printf("Provisioning failed: deviceID is missing in the request body")
+		return
+	}
+
+	client := resty.New()
+	url := fmt.Sprintf("%s/devices/provisioning/%s", os.Getenv("API_URL"), deviceID)
+
+	// Make the POST request to the provisioning endpoint
+	resp, err := client.R().
+		Post(url)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to provision device: %v", err), http.StatusInternalServerError)
+		log.Printf("Provisioning request error: %v", err)
+		return
+	}
+
+	// --- FIX IS HERE ---
+	// Check the HTTP status code of the response first.
+	// If it's not a success code (2xx), it's likely an error with a plain text body.
+	if resp.StatusCode() >= 400 {
+		log.Printf("Upstream API returned a non-success status code: %d", resp.StatusCode())
+
+		// Read the body as plain text to get the error message.
+		body, readErr := ioutil.ReadAll(resp.RawBody())
+		if readErr != nil {
+			http.Error(w, "Failed to read upstream error message", http.StatusInternalServerError)
+			log.Printf("Error reading upstream error body: %v", readErr)
+			return
+		}
+
+		// Return the upstream error message and status code to the client.
+		http.Error(w, string(body), resp.StatusCode())
+		return
+	}
+	// --- END OF FIX ---
+
+	// The rest of your code for successful JSON responses
+	var result ProvisioningResponse
+	err = json.Unmarshal(resp.Body(), &result)
+	if err != nil {
+		http.Error(w, "Failed to parse provisioning response", http.StatusInternalServerError)
+		log.Printf("Error unmarshalling provisioning response: %v", err)
+		return
+	}
+	log.Printf("Provisioning response: %+v", result)
+	if result.Token == "" {
+		http.Error(w, "Provisioning failed: No token received", http.StatusInternalServerError)
+		log.Printf("Provisioning failed for device %s: No token received", deviceID)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+	log.Printf("Provisioned device %s with token: %s", deviceID, result.Token)
 }

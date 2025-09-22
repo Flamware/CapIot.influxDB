@@ -7,6 +7,7 @@ import (
 	"CapIot.influxDB/internal/routes"
 	"CapIot.influxDB/internal/service"
 	"fmt"
+	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 )
@@ -14,8 +15,9 @@ import (
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -37,18 +39,21 @@ func main() {
 	svc := service.NewDataService(repo)
 	ctrl := controller.NewDataController(svc)
 
-	// Register routes
-	mux := http.NewServeMux()
-	routes.RegisterRoutes(mux, ctrl)
+	// Initialize the mux.Router
+	router := mux.NewRouter()
 
-	// Wrap mux with CORS middleware
-	corsHandler := enableCORS(mux)
+	// Register all routes with the mux.Router
+	routes.RegisterRoutes(router, ctrl)
+
+	// Wrap the mux.Router with the CORS middleware
+	corsHandler := enableCORS(router)
 
 	// Start server
 	serverAddress := fmt.Sprintf(":%s", cfg.Port)
 	fmt.Printf("Listening on %s\n", serverAddress)
 	log.Printf("Server is running at: http://localhost:%s", cfg.Port)
 
+	// Use the correctly wrapped router to start the server
 	if err := http.ListenAndServe(serverAddress, corsHandler); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}

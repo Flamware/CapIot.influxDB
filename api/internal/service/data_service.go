@@ -24,7 +24,7 @@ func NewDataService(repo repository.Repository) *DataService { // Changed argume
 func (s *DataService) ProcessAndSaveSensorData(ctx context.Context, data models.SensorData) error {
 	// Validation: Check for device ID. It's good to have a device ID.
 	if data.DeviceID == "" {
-		return fmt.Errorf("device_id is required")
+		return fmt.Errorf("deviceID is required")
 	}
 	// It's ok if some sensor values are zero, but you might want to log if all are.
 
@@ -66,7 +66,7 @@ func (s *DataService) GetData(req models.QueryRequest) ([]models.SensorQueryResp
 func (s *DataService) SaveConsumptionData(ctx context.Context, req models.ConsumptionReq) error {
 	// Validation: Check for device ID. It's good to have a device ID.
 	if req.DeviceID == "" {
-		return fmt.Errorf("device_id is required")
+		return fmt.Errorf("deviceID is required")
 	}
 	// It's ok if some sensor values are zero, but you might want to log if all are.
 
@@ -98,7 +98,7 @@ func (s *DataService) SaveConsumptionData(ctx context.Context, req models.Consum
 
 func (s *DataService) GetConsumptionData(ctx context.Context, req models.ConsumptionQueryRequest) ([]models.ConsumptionQueryResponse, error) {
 	if req.DeviceID == "" {
-		return nil, fmt.Errorf("device_id is required")
+		return nil, fmt.Errorf("deviceID is required")
 	}
 
 	// Default to all metrics if empty
