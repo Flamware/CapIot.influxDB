@@ -1,0 +1,32 @@
+@startuml STM32_Components_Activity
+
+start
+:Initialisation composants et MQTT;
+:Connexion au broker;
+
+while (Device en ligne ?)
+    :Recevoir message MQTT;
+    if (message = config) then (oui)
+        :Mettre à jour configuration composant;
+        if (Erreur config ?) then (oui)
+            :Publier alert configuration;
+        endif
+    elseif (message = command) then (oui)
+        :Exécuter commande (Start, Stop, Follow_Schedule, Reset);
+    elseif (message = schedule) then (oui)
+        :Mettre à jour planning;
+    endif
+
+    :Générer données pour chaque capteur;
+    :Vérifier alertes sur valeurs (min/max);
+    :Vérifier running_hours et alertes maintenance;
+    if (Alert ?) then (oui)
+        :Publier alert sur devices/alert/{deviceID};
+    endif
+    :Publier running_hours sur devices/running_hours/{deviceID};
+    :Publier données consommation sur devices/consumption/{deviceID};
+endwhile
+
+stop
+
+@enduml

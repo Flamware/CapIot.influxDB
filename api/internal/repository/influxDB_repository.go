@@ -21,6 +21,8 @@ type Repository interface {
 	BucketExists(ctx context.Context, name string) (bool, error)
 	CreateBucket(ctx context.Context, name string) error
 	Query(query models.QueryRequest) ([]models.SensorQueryResponse, error)
+	WriteConsumptionData(ctx context.Context, req models.ConsumptionReq) error
+	QueryConsumptionData(ctx context.Context, id string, metrics []string, start string, stop string) ([]models.ConsumptionQueryResponse, error)
 }
 
 // InfluxDBRepository is a repository for writing data to InfluxDB.
@@ -227,4 +229,122 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 	}
 
 	return response, nil
+}
+
+// WriteConsumptionData writes the consumption data to InfluxDB.
+func (r *InfluxDBRepository) WriteConsumptionData(ctx context.Context, req models.ConsumptionReq) error {
+	// defer r.client.Close() // Remove this line
+	bucket := "consumption_data"
+	writeAPI := r.client.WriteAPIBlocking(r.org, bucket)
+
+	fields := map[string]interface{}{
+		"current": req.Current,
+		"voltage": req.Voltage,
+		"power":   req.Power,
+	}
+
+	var p *write.Point
+	if req.Timestamp != "" { // Check if the Timestamp string is not empty
+		stm32Time, err := time.Parse(time.RFC3339, req.Timestamp)
+		if err != nil {
+			log.Printf("Error parsing timestamp '%s', using current time: %v\n", req.Timestamp, err)
+			p = influxdb2.NewPoint(
+				"consumption_data",                           // Measurement name.
+				map[string]string{"device_id": req.DeviceID}, // tags
+				fields,
+				time.Now(), //  Use server time
+			)
+		} else {
+			p = influxdb2.NewPoint(
+				"consumption_data",                           // Measurement name.
+				map[string]string{"device_id": req.DeviceID}, // tags
+				fields,
+				stm32Time, // Use the timestamp from the STM32.
+			)
+		}
+	} else {
+		p = influxdb2.NewPoint(
+			"consumption_data",                           // Measurement name.
+			map[string]string{"device_id": req.DeviceID}, // tags
+			fields,
+			time.Now(),
+		)
+	}
+
+	err := writeAPI.WritePoint(ctx, p)
+	if err != nil {
+		return fmt.Errorf("error writing consumption data to InfluxDB: %w", err)
+	}
+	log.Printf("Consumption data point written to InfluxDB, bucket: %s, device_id: %s\n", bucket, req.DeviceID)
+	return nil
+}
+
+// QueryConsumptionData queries consumption data from InfluxDB and formats it as a nested structure.
+func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, id string, metrics []string, start string, stop string) ([]models.ConsumptionQueryResponse, error) {
+	queryAPI := r.client.QueryAPI(r.org)
+
+	if start == "" || stop == "" {
+		return nil, fmt.Errorf("time range start and stop must be provided")
+	}
+
+	// Build Flux query
+	fluxQuery := fmt.Sprintf(`
+       from(bucket: "%s")
+       |> range(start: %s, stop: %s)
+       |> filter(fn: (r) => r["_measurement"] == "consumption_data")
+       |> filter(fn: (r) => r["device_id"] == "%s")
+       |> filter(fn: (r) => %s)
+       |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+       |> yield(name: "mean")
+    `, "consumption_data", start, stop, id, createMetricFilterClause(metrics))
+	log.Printf("Executing InfluxDB consumption query: %s", fluxQuery)
+
+	// Execute query
+	result, err := queryAPI.Query(ctx, fluxQuery)
+	if err != nil {
+		log.Printf("Error querying InfluxDB: %v\nQuery: %s", err, fluxQuery)
+		return nil, fmt.Errorf("error querying InfluxDB: %w", err)
+	}
+
+	// Prepare the final response structure
+	response := models.ConsumptionQueryResponse{
+		DeviceID: id,
+		Readings: make(map[string][]models.DataPoint),
+	}
+
+	for result.Next() {
+		record := result.Record()
+		metricName := record.Field()
+		timestamp := record.Time()
+		value, ok := record.Value().(float64)
+		if !ok {
+			log.Printf("Skipping non-float64 value for metric %s", metricName)
+			continue
+		}
+
+		// Create a new data point
+		dataPoint := models.DataPoint{
+			Time:  timestamp,
+			Value: value,
+		}
+
+		// Append the data point to the correct metric slice
+		response.Readings[metricName] = append(response.Readings[metricName], dataPoint)
+	}
+
+	if result.Err() != nil {
+		return nil, fmt.Errorf("query processing error: %w", result.Err())
+	}
+
+	// Return the single, populated response in a slice
+	return []models.ConsumptionQueryResponse{response}, nil
+}
+
+// createMetricFilterClause creates a combined filter string for multiple metrics.
+func createMetricFilterClause(metrics []string) string {
+	fieldFilters := make([]string, len(metrics))
+	for i, metric := range metrics {
+		fieldFilters[i] = fmt.Sprintf(`r["_field"] == "%s"`, metric)
+	}
+	return strings.Join(fieldFilters, " or ")
 }

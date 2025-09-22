@@ -103,3 +103,84 @@ func (dc *DataController) HandleQueryData(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
 }
+
+func (c *DataController) HandleConsumptionData(writer http.ResponseWriter, request *http.Request) {
+	log.Println("--- HandleConsumptionData function is being executed ---") // ADD THIS LINE
+	writer.Header().Set("Content-Type", "application/json")
+
+	var req models.ConsumptionReq
+	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
+		http.Error(writer, "Invalid request payload", http.StatusBadRequest)
+		log.Printf("Error decoding request body: %v", err)
+		return
+	}
+	defer request.Body.Close()
+
+	// Basic validation in the controller
+	if req.Timestamp == "" {
+		http.Error(writer, "timestamp is required", http.StatusBadRequest)
+		return
+	}
+	if req.DeviceID == "" {
+		http.Error(writer, "deviceId is required", http.StatusBadRequest)
+		return
+	}
+	// Call the service to process and save consumption data
+	err := c.service.SaveConsumptionData(request.Context(), req)
+	if err != nil {
+		http.Error(writer, "Error processing consumption data", http.StatusInternalServerError)
+		log.Printf("Service error: %v", err)
+		return
+	}
+
+	writer.WriteHeader(http.StatusCreated)
+	fmt.Fprintln(writer, "Consumption data received and written to InfluxDB")
+}
+
+func (c *DataController) HandleGetConsumptionData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Check if the request method is GET.
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Create a ConsumptionQueryRequest struct and populate it from query parameters.
+	var req models.ConsumptionQueryRequest
+
+	// Get the device_id from the query parameters.
+	req.DeviceID = r.URL.Query().Get("device_id")
+	if req.DeviceID == "" {
+		http.Error(w, "device_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the metrics from the query parameters.
+	req.Metrics = r.URL.Query()["metric"]
+	if len(req.Metrics) == 0 {
+		http.Error(w, "At least one metric is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the time range from the query parameters.
+	req.TimeRangeStart = r.URL.Query().Get("time_range_start")
+	req.TimeRangeStop = r.URL.Query().Get("time_range_stop")
+
+	// Call service to fetch consumption data
+	data, err := c.service.GetConsumptionData(r.Context(), req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error fetching consumption data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Marshal and send JSON response
+	response, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "Error marshalling response data", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
+}

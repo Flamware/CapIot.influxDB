@@ -1,0 +1,63 @@
+@startuml STM32_Alert_Topic_Activity_Valid
+
+start
+:STM32 Device initialisé;
+
+:Générer données capteurs et état actuateur;
+
+if (Composant mal configuré ?) then (oui)
+    :Créer payload alert "CONFIGURATION_ERROR";
+    :Publier sur devices/alert/{deviceID};
+     :Publier sur devices/alert/{deviceID} :
+    Payload JSON standard :
+    {
+      "device_id": "...",
+      "component_id": "...",
+      "alert": "",
+      "value": null,
+      "timestamp": "DateTime"
+    }
+endif
+
+if (Valeur capteur hors seuil ?) then (oui)
+    :Créer payload alert "VALUE_OUT_OF_RANGE";
+    :Publier sur devices/alert/{deviceID};
+     :Publier sur devices/alert/{deviceID} :
+    Payload JSON standard :
+    {
+      "device_id": "...",
+      "component_id": "...",
+      "alert": "",
+      "value": valeur_actuelle,
+      "timestamp": "DateTime"
+    }
+endif
+
+if (Running_hours > max_running_hours ?) then (oui)
+    :Créer payload alert "MAINTENANCE_REQUIRED";
+    :Publier sur devices/alert/{deviceID};
+    :Publier sur devices/alert/{deviceID} :
+    Payload JSON standard :
+    {
+      "device_id": "...",
+      "component_id": "...",
+      "alert": "",
+      "value": current_running_hours,
+      "timestamp": "DateTime"
+    }
+endif
+
+if (Autre condition critique ?) then (oui)
+    :Créer payload alert spécifique;
+    :Publier sur devices/alert/{deviceID};
+endif
+
+:Les systèmes abonnés reçoivent le message;
+
+if (Device en ligne ?) then (oui)
+    --> :Boucle sur surveillance;
+else (non)
+    stop
+endif
+
+@enduml

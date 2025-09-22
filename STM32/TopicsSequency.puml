@@ -1,0 +1,29 @@
+@startuml STM32_MQTT_Sequence
+
+actor "User / Dashboard" as User
+participant "STM32 Device" as Device
+participant "MQTT Broker" as Broker
+participant "InfluxDB / Monitoring" as External
+
+== Initialisation ==
+Device -> Broker : CONNECT
+Device -> Broker : PUBLISH devices/available/{deviceID}
+Device -> Broker : PUBLISH devices/status/{deviceID} ("online")
+Device -> Broker : PUBLISH devices/heartbeat/{deviceID} (every 5s)
+Device -> Broker : PUBLISH devices/consumption/{deviceID} (every 5s)
+
+== Command Reception ==
+Broker -> Device : devices/config/{deviceID}
+Device -> Device : Update component configuration
+Broker -> Device : devices/commands/{deviceID} (Start / Stop / Follow_Schedule / Reset)
+Device -> Device : Execute command
+Broker -> Device : devices/schedules/{deviceID}
+Device -> Device : Update schedule
+
+== Data Publishing ==
+Device -> External : HTTP POST /sensordata (sensor values)
+Device -> External : HTTP POST /metrics (power consumption)
+Device -> Broker : PUBLISH devices/running_hours/{deviceID}
+Device -> Broker : PUBLISH devices/alert/{deviceID} (if alert)
+
+@enduml

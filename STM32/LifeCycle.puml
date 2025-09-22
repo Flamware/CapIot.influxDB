@@ -1,0 +1,72 @@
+@startuml STM32_Activity
+
+start
+
+:Initialisation du device;
+:Configurer logger et composants;
+:Connexion MQTT;
+
+if (Connexion réussie ?) then (oui)
+    :Publier disponibilité (availability);
+    :Publier status "online";
+else (non)
+    stop
+endif
+
+fork
+    :Démarrer heartbeat interval;
+fork again
+    :Démarrer consommation interval;
+fork again
+    :Démarrer interval de vérification du schedule;
+end fork
+
+while (Device en ligne ?) is (oui)
+    :Attente réception message MQTT;
+    :Parser message JSON;
+
+    if (message = "config") then (oui)
+        :Mettre à jour configuration composant;
+        if (erreur config ?) then (oui)
+            :Publier alert configuration;
+        endif
+    elseif (message = "command") then (oui)
+        if (command = "Start") then (oui)
+            :Vérifier config composants;
+            :Démarrer monitoring des données;
+            :Publier status "running";
+        elseif (command = "Stop") then (oui)
+            :Arrêter monitoring;
+            :Publier status "online";
+        elseif (command = "Follow_Schedule") then (oui)
+            :Activer suivi de planning;
+            if (schedule actif ?) then (oui)
+                :Démarrer monitoring;
+                :Publier status "running_plan";
+            else (non)
+                :Publier status "stopped_plan";
+            endif
+        elseif (command = "Reset") then (oui)
+            :Réinitialiser running_hours du composant;
+        else (inconnu)
+            :Log warning commande inconnue;
+        endif
+    elseif (message = "schedule") then (oui)
+        :Mettre à jour planning;
+        if (schedule actif ?) then (oui)
+            :Démarrer monitoring;
+            :Publier status "running_plan";
+        else (non)
+            :Arrêter monitoring;
+            :Publier status "stopped_plan";
+        endif
+    endif
+
+    :Générer données pour chaque composant;
+    :Vérifier alertes sur valeurs et running_hours;
+    :Publier données et alertes MQTT;
+endwhile
+
+stop
+
+@enduml
