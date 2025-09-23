@@ -11,11 +11,11 @@ import (
 // RegisterRoutes registers all application routes
 func RegisterRoutes(router *mux.Router, controller *controller.DataController) {
 	// Sensor data - GET and POST are handled separately to apply different middleware.
-	router.Handle("/influxdb/sensordata/{deviceID}/{locationID}",
-		middleware.CheckLocationAndDeviceAccess(http.HandlerFunc(controller.HandleQueryData))).Methods(http.MethodGet)
+	router.Handle("/influxdb/sensordata/{deviceID}",
+		middleware.CheckDeviceAccess(http.HandlerFunc(controller.HandleGetSensorData))).Methods(http.MethodGet)
 
 	router.Handle("/influxdb/sensordata/{deviceID}/{locationID}",
-		middleware.CheckDeviceRights(http.HandlerFunc(controller.HandleSensorData))).Methods(http.MethodPost)
+		middleware.CheckLocationAndDeviceAccess(http.HandlerFunc(controller.HandleSensorData))).Methods(http.MethodPost)
 
 	// Consumption data - GET and POST are handled separately.
 	router.Handle("/influxdb/metrics/{deviceID}",
