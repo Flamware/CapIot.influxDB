@@ -17,23 +17,26 @@ spec:
     spec:
       containers:
         - name: capiot-influxdb-api
-          image: flamware/capiot-influxdb-api:20250609093321-272d7a39
+          image: flamware/capiot-influxdb-api:test
           ports:
-            - containerPort: 8080 # IMPORTANT: Verify your API listens on this port
+            - containerPort: 8000 # IMPORTANT: Verify your API listens on this port
           env:
+            - name: API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: api-influxdb-config
+                  key: API_URL
             - name: INFLUXDB_URL
-              # Use the internal ClusterIP Service name for InfluxDB
-              # Format: http://<service-name>.<namespace>.svc.cluster.local:<port>
               value: "http://influxdb-service.capiot.svc.cluster.local:8086"
             - name: INFLUXDB_ORG
               valueFrom:
                 secretKeyRef:
-                  name: influxdb-org-bucket # <-- CORRECTED: This is the actual secret name
+                  name: influxdb-creds # <-- CORRECTED: This is the actual secret name
                   key: INFLUXDB_ORG
             - name: INFLUXDB_BUCKET # <-- Added this back as it's needed for the API
               valueFrom:
                 secretKeyRef:
-                  name: influxdb-org-bucket # <-- CORRECTED: This is the actual secret name
+                  name: influxdb-creds # <-- CORRECTED: This is the actual secret name
                   key: INFLUXDB_BUCKET
             - name: INFLUXDB_TOKEN
               valueFrom:

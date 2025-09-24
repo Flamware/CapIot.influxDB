@@ -11,21 +11,21 @@ import (
 // RegisterRoutes registers all application routes
 func RegisterRoutes(router *mux.Router, controller *controller.DataController) {
 	// Sensor data - GET and POST are handled separately to apply different middleware.
-	router.Handle("/influxdb/sensordata/{deviceID}",
-		middleware.CheckDeviceAccess(http.HandlerFunc(controller.HandleGetSensorData))).Methods(http.MethodGet)
+	router.Handle("/influxdb/sensordata",
+		middleware.CheckUserRights(http.HandlerFunc(controller.HandleQueryData))).Methods(http.MethodGet)
 
 	router.Handle("/influxdb/sensordata/{deviceID}/{locationID}",
 		middleware.CheckLocationAndDeviceAccess(http.HandlerFunc(controller.HandleSensorData))).Methods(http.MethodPost)
 
 	// Consumption data - GET and POST are handled separately.
-	router.Handle("/influxdb/metrics/{deviceID}",
-		middleware.CheckDeviceAccessMiddleware(http.HandlerFunc(controller.HandleGetConsumptionData))).Methods(http.MethodGet)
+	router.Handle("/influxdb/metrics",
+		middleware.CheckUserDeviceRightsMiddleware(http.HandlerFunc(controller.HandleGetConsumptionData))).Methods(http.MethodGet)
 
 	router.Handle("/influxdb/metrics/{deviceID}",
-		middleware.CheckDeviceRights(http.HandlerFunc(controller.HandleConsumptionData))).Methods(http.MethodPost)
+		middleware.CheckDeviceRightsMiddleware(http.HandlerFunc(controller.HandleConsumptionData))).Methods(http.MethodPost)
 
 	// Device provisioning endpoint
-	router.HandleFunc("/influxdb/provisioning", controller.HandleProvisioning).Methods(http.MethodPost)
+	router.HandleFunc("/influxdb/provisioning/{deviceID}", controller.HandleProvisioning).Methods(http.MethodGet)
 
 	// Health check
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

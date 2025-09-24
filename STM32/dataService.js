@@ -55,7 +55,7 @@ const publishComponentData = async (
     const timestamp = moment().toISOString();
 
     // Publish data for each component using POST request
-    const apiUrl = `http://localhost:8000/influxdb/sensordata/${deviceID}/${deviceLocation}`;
+    const apiUrl = `http://influxdb.flamware.work/influxdb/sensordata/${deviceID}/${deviceLocation}`;
 
     const sensors = components.filter(c => c.component_type === 'sensor');
     const dataPayload = sensors.map(component => {
@@ -173,7 +173,7 @@ const publishConsumptionData = (client, deviceID, consumptionTopic) => {
     console.log(`Published consumption data to broker: ${JSON.stringify(consumptionPayload)}`);
 
     //publish to influxdb
-    const apiUrl = `http://localhost:8000/influxdb/metrics/${deviceID}`;
+    const apiUrl = `http://influxdb.flamware.work/influxdb/metrics/${deviceID}`;
     axios.post(apiUrl, consumptionPayload, {
         headers: {
             'Authorization': `Bearer ${authToken}`

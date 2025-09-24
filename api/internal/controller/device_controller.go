@@ -3,9 +3,11 @@ package controller
 import (
 	"CapIot.influxDB/internal/models"  // Use your actual module name
 	"CapIot.influxDB/internal/service" // Use your actual module name
+	"CapIot.influxDB/internal/utils"
 	"encoding/json"
 	"fmt"
 	"github.com/go-resty/resty/v2"
+	"github.com/gorilla/mux"
 	"io"
 	"io/ioutil"
 	"log"
@@ -29,241 +31,232 @@ func NewDataController(service *service.DataService) *DataController {
 	}
 }
 
+// RespondWithJSON sends a JSON response with the specified status code.
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	if payload != nil {
+		if err := json.NewEncoder(w).Encode(payload); err != nil {
+			log.Printf("Failed to encode JSON response: %v", err)
+		}
+	}
+}
+
 // HandleSensorData handles the incoming HTTP request.
 func (c *DataController) HandleSensorData(w http.ResponseWriter, r *http.Request) {
-
-	log.Println("--- HandleSensorData function is being executed ---") // ADD THIS LINE
+	log.Println("--- HandleSensorData function is being executed ---")
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error reading request body: %v", err), http.StatusBadRequest)
-		log.Printf("Error reading body: %v", err)
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, fmt.Sprintf("error reading request body: %v", err), nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 	defer r.Body.Close()
 
 	log.Printf("Received data: %s\n", body)
 
-	var dataArray []models.SensorData // Expect a slice (array) of SensorData
+	var dataArray []models.SensorData
 	err = json.Unmarshal(body, &dataArray)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error unmarshalling JSON: %v", err), http.StatusBadRequest)
-		log.Printf("Error unmarshalling JSON: %v", err)
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, fmt.Sprintf("error unmarshalling JSON: %v", err), nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	for _, data := range dataArray { // Iterate through the array of sensor data
+	for _, data := range dataArray {
 		err = c.service.ProcessAndSaveSensorData(r.Context(), data)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("error processing data: %v", err), http.StatusInternalServerError)
-			log.Printf("Service error: %v", err)
+			apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, fmt.Sprintf("error processing data: %v", err), nil, http.StatusInternalServerError)
+			utils.RespondWithError(w, apiErr)
 			return
 		}
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(w, "Data received and written to InfluxDB")
+	respondWithJSON(w, http.StatusCreated, map[string]string{"message": "Data received and written to InfluxDB"})
 }
 
-func (dc *DataController) HandleQueryData(w http.ResponseWriter, r *http.Request) {
+// HandleQueryData handles the request for sensor data queries.
+func (c *DataController) HandleQueryData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var req models.QueryRequest
-	err := r.ParseForm()
-	if err != nil {
-		http.Error(w, "Error parsing form data", http.StatusBadRequest)
+	if r.Method != http.MethodGet {
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, "Invalid request method", nil, http.StatusMethodNotAllowed)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	req.LocationID = r.Form.Get("locationID")
-	req.DeviceID = r.Form.Get("deviceID")
-	req.SensorType = r.Form["sensorType[]"]
-	req.WindowPeriod = r.Form.Get("windowPeriod")
-	req.TimeRangeStart = r.Form.Get("timeRangeStart")
-	req.TimeRangeStop = r.Form.Get("timeRangeStop")
+	var req models.QueryRequest
+	query := r.URL.Query()
 
-	// Basic validation in the controller
+	req.LocationID = query.Get("location_id")
+	req.DeviceID = query.Get("device_id")
+	req.SensorType = query["sensor_type"]
+	req.WindowPeriod = query.Get("window_period")
+	req.TimeRangeStart = query.Get("time_range_start")
+	req.TimeRangeStop = query.Get("time_range_stop")
+
 	if req.LocationID == "" {
-		http.Error(w, "locationID is required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "location_id is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 	if req.DeviceID == "" {
-		http.Error(w, "deviceId is required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "device_id is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 	if len(req.SensorType) == 0 {
-		http.Error(w, "sensorIds are required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "sensor_type is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Call the service to fetch data from InfluxDB, passing the request model
-	data, err := dc.service.GetData(req)
+	data, err := c.service.GetData(req)
 	if err != nil {
-		http.Error(w, "Error fetching data from InfluxDB", http.StatusInternalServerError)
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, fmt.Sprintf("Error fetching data from InfluxDB: %v", err), nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
-	response, err := json.Marshal(data)
-	if err != nil {
-		http.Error(w, "Error marshalling response data", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+
+	respondWithJSON(w, http.StatusOK, data)
 }
 
-func (c *DataController) HandleConsumptionData(writer http.ResponseWriter, request *http.Request) {
-	log.Println("--- HandleConsumptionData function is being executed ---") // ADD THIS LINE
-	writer.Header().Set("Content-Type", "application/json")
+// HandleConsumptionData handles the incoming HTTP request for consumption data.
+func (c *DataController) HandleConsumptionData(w http.ResponseWriter, r *http.Request) {
+	log.Println("--- HandleConsumptionData function is being executed ---")
+	w.Header().Set("Content-Type", "application/json")
 
 	var req models.ConsumptionReq
-	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
-		http.Error(writer, "Invalid request payload", http.StatusBadRequest)
-		log.Printf("Error decoding request body: %v", err)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, "Invalid request payload", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
-	defer request.Body.Close()
+	defer r.Body.Close()
 
-	// Basic validation in the controller
 	if req.Timestamp == "" {
-		http.Error(writer, "timestamp is required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "timestamp is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 	if req.DeviceID == "" {
-		http.Error(writer, "deviceId is required", http.StatusBadRequest)
-		return
-	}
-	// Call the service to process and save consumption data
-	err := c.service.SaveConsumptionData(request.Context(), req)
-	if err != nil {
-		http.Error(writer, "Error processing consumption data", http.StatusInternalServerError)
-		log.Printf("Service error: %v", err)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "deviceId is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	writer.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(writer, "Consumption data received and written to InfluxDB")
+	err := c.service.SaveConsumptionData(r.Context(), req)
+	if err != nil {
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, "Error processing consumption data", nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, map[string]string{"message": "Consumption data received and written to InfluxDB"})
 }
 
+// HandleGetConsumptionData handles the GET request for consumption data.
 func (c *DataController) HandleGetConsumptionData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Check if the request method is GET.
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, "Method not allowed", nil, http.StatusMethodNotAllowed)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Create a ConsumptionQueryRequest struct and populate it from query parameters.
 	var req models.ConsumptionQueryRequest
 
-	// Get the device_id from the query parameters.
-	req.DeviceID = r.URL.Query().Get("deviceID")
+	req.DeviceID = r.URL.Query().Get("device_id")
 	if req.DeviceID == "" {
-		http.Error(w, "deviceID is required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "deviceID is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Get the metrics from the query parameters.
 	req.Metrics = r.URL.Query()["metric"]
 	if len(req.Metrics) == 0 {
-		http.Error(w, "At least one metric is required", http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "At least one metric is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Get the time range from the query parameters.
 	req.TimeRangeStart = r.URL.Query().Get("time_range_start")
 	req.TimeRangeStop = r.URL.Query().Get("time_range_stop")
 
-	// Call service to fetch consumption data
 	data, err := c.service.GetConsumptionData(r.Context(), req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error fetching consumption data: %v", err), http.StatusInternalServerError)
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, fmt.Sprintf("Error fetching consumption data: %v", err), nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Marshal and send JSON response
-	response, err := json.Marshal(data)
-	if err != nil {
-		http.Error(w, "Error marshalling response data", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+	respondWithJSON(w, http.StatusOK, data)
 }
 
 // HandleProvisioning acts as a proxy to a provisioning endpoint.
 func (c *DataController) HandleProvisioning(w http.ResponseWriter, r *http.Request) {
-	// Define a struct to hold the request body
-	var requestBody struct {
-		DeviceID string `json:"deviceID"`
-	}
-
-	// Decode the JSON request body
-	err := json.NewDecoder(r.Body).Decode(&requestBody)
-	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		log.Printf("Error decoding request body: %v", err)
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		log.Println("Invalid request method for provisioning")
+		apiErr := models.NewAPIError(models.ErrorCodeBadRequest, "Invalid request method", nil, http.StatusMethodNotAllowed)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	// Get the deviceID from the decoded body
-	deviceID := requestBody.DeviceID
+	deviceID := mux.Vars(r)["deviceID"]
 	if deviceID == "" {
-		http.Error(w, "deviceID is required in the request body", http.StatusBadRequest)
-		log.Printf("Provisioning failed: deviceID is missing in the request body")
+		log.Println("Missing deviceID in URL path")
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "deviceID is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
 	client := resty.New()
 	url := fmt.Sprintf("%s/devices/provisioning/%s", os.Getenv("API_URL"), deviceID)
 
-	// Make the POST request to the provisioning endpoint
 	resp, err := client.R().
-		Post(url)
+		Get(url)
 
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to provision device: %v", err), http.StatusInternalServerError)
-		log.Printf("Provisioning request error: %v", err)
+		log.Println("Error making provisioning request:", err)
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, fmt.Sprintf("Failed to provision device: %v", err), nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
-
-	// --- FIX IS HERE ---
-	// Check the HTTP status code of the response first.
-	// If it's not a success code (2xx), it's likely an error with a plain text body.
+	log.Println("Provisioning response status:", resp.Status())
 	if resp.StatusCode() >= 400 {
-		log.Printf("Upstream API returned a non-success status code: %d", resp.StatusCode())
-
-		// Read the body as plain text to get the error message.
 		body, readErr := ioutil.ReadAll(resp.RawBody())
 		if readErr != nil {
-			http.Error(w, "Failed to read upstream error message", http.StatusInternalServerError)
-			log.Printf("Error reading upstream error body: %v", readErr)
+			log.Println("Error reading upstream error message:", readErr)
+			log.Printf("Url: %s, Status: %d, Original Error: %v", url, resp.StatusCode(), readErr)
+			apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, "Failed to read upstream error message", nil, http.StatusInternalServerError)
+			utils.RespondWithError(w, apiErr)
 			return
 		}
 
-		// Return the upstream error message and status code to the client.
-		http.Error(w, string(body), resp.StatusCode())
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, string(body), nil, resp.StatusCode())
+		utils.RespondWithError(w, apiErr)
 		return
 	}
-	// --- END OF FIX ---
 
-	// The rest of your code for successful JSON responses
 	var result ProvisioningResponse
 	err = json.Unmarshal(resp.Body(), &result)
 	if err != nil {
-		http.Error(w, "Failed to parse provisioning response", http.StatusInternalServerError)
-		log.Printf("Error unmarshalling provisioning response: %v", err)
-		return
-	}
-	log.Printf("Provisioning response: %+v", result)
-	if result.Token == "" {
-		http.Error(w, "Provisioning failed: No token received", http.StatusInternalServerError)
-		log.Printf("Provisioning failed for device %s: No token received", deviceID)
+		log.Println("Error parsing provisioning response:", err)
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, "Failed to parse provisioning response", nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if result.Token == "" {
+		log.Println("No token received in provisioning response")
+		apiErr := models.NewAPIError(models.ErrorCodeInternalServerError, "Provisioning failed: No token received", nil, http.StatusInternalServerError)
+		utils.RespondWithError(w, apiErr)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, result)
 	log.Printf("Provisioned device %s with token: %s", deviceID, result.Token)
 }

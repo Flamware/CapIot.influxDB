@@ -10,11 +10,9 @@ let authToken = null; // Variable to store the authentication token
 const getProvisioningToken = async (deviceID, apiProvisioningUrl) => {
     try {
         console.log(`Starting device provisioning for device ${deviceID}...`);
-
+        console.log(`Provisioning URL: ${apiProvisioningUrl}`);
         // Make the POST request to the provisioning endpoint with the deviceID in the body
-        const response = await axios.post(apiProvisioningUrl, {
-            deviceID: deviceID,
-        });
+        const response = await axios.get(apiProvisioningUrl+`/${deviceID}`);
 
         const token = response.data.provisioning_token;
         if (!token) {

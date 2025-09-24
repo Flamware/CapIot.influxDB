@@ -6,10 +6,10 @@ metadata:
   labels:
     app: capiot-influxdb-api
 spec:
-  type: LoadBalancer # LoadBalancer type for external access
+  type: ClusterIP # Changed to ClusterIP
   selector:
-    app: capiot-influxdb-api # Matches the labels in the Deployment
+    app: capiot-influxdb-api
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8000 # <--- CHANGED: Port inside the container, where your app listens
+      targetPort: 8080 # Corrected to 8080 to match your container

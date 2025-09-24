@@ -1,12 +1,9 @@
-// internal/repository/InfluxDBRepository.go
-
 package repository
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -135,9 +132,17 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 	ctx := context.Background()
 	queryAPI := r.client.QueryAPI(r.org)
 
-	locationID, err := strconv.Atoi(req.LocationID)
+	// Convert location_id to a string to use as bucket name
+	bucketName := req.LocationID
+
+	// Check if the bucket exists before running the query
+	bucketExists, err := r.BucketExists(ctx, bucketName)
 	if err != nil {
-		return nil, fmt.Errorf("invalid locationId: %w", err)
+		return nil, fmt.Errorf("error checking bucket existence: %w", err)
+	}
+	if !bucketExists {
+		log.Printf("Bucket '%s' does not exist. Returning empty data.", bucketName)
+		return []models.SensorQueryResponse{}, nil // Return empty slice as requested
 	}
 
 	var rangeClause string
@@ -156,14 +161,14 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 	fieldFilterClause := strings.Join(fieldFilters, " or ")
 
 	fluxQuery := fmt.Sprintf(`
-		from(bucket: "%d")
-		%s
-		|> filter(fn: (r) => r["_measurement"] == "sensor_data")
-		|> filter(fn: (r) => r["device_id"] == "%s")
-		|> filter(fn: (r) => %s)
-		|> aggregateWindow(every: %s, fn: mean, createEmpty: false)
-		|> yield(name: "mean")
-	`, locationID, rangeClause, req.DeviceID, fieldFilterClause, req.WindowPeriod)
+       from(bucket: "%s")
+       %s
+       |> filter(fn: (r) => r["_measurement"] == "sensor_data")
+       |> filter(fn: (r) => r["device_id"] == "%s")
+       |> filter(fn: (r) => %s)
+       |> aggregateWindow(every: %s, fn: mean, createEmpty: false)
+       |> yield(name: "mean")
+    `, bucketName, rangeClause, req.DeviceID, fieldFilterClause, req.WindowPeriod)
 	log.Printf("Executing InfluxDB query: %s", fluxQuery)
 	// Execute the query
 	result, err := queryAPI.Query(ctx, fluxQuery)

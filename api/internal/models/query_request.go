@@ -1,12 +1,12 @@
 package models
 
 type QueryRequest struct {
-	LocationID     string   `json:"locationId"`
-	DeviceID       string   `json:"deviceId"`
-	SensorType     []string `json:"sensorIds"`
-	TimeRangeStart string   `json:"timeRangeStart"`
-	TimeRangeStop  string   `json:"timeRangeStop"`
-	WindowPeriod   string   `json:"windowPeriod"`
+	LocationID     string   `json:"location_id"`
+	DeviceID       string   `json:"device_id"`
+	SensorType     []string `json:"sensor_type"`
+	TimeRangeStart string   `json:"time_range_start"`
+	TimeRangeStop  string   `json:"time_range_stop"`
+	WindowPeriod   string   `json:"window_period"`
 }
 
 type ConsumptionQueryRequest struct {

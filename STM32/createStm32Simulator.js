@@ -6,7 +6,7 @@ const moment = require('moment');
 const mqttService = require('./mqttService');
 const dataService = require('./dataService');
 const handleSchedule = require('./handleSchedule');
-const {getProvisioningToken} = require("./auth");
+const { getProvisioningToken } = require("./auth");
 
 /**
  * @typedef {Object} Schedule
@@ -54,11 +54,8 @@ async function createStm32Simulator(deviceID) {
         })],
     });
 
-    // Provisioning URL
-    const API_PROVISIONING_URL = 'http://localhost:8000/influxdb/provisioning';
-
     // MQTT config
-    const mqttBroker = 'mqtt://localhost:1883';
+    const mqttBroker = 'mqtt://mqtt.flamware.work:1883';
     const availabilityTopic = `devices/available/${deviceID}`;
     const statusTopic = `devices/status/${deviceID}`;
     const heartbeatTopic = `devices/heartbeat/${deviceID}`;
@@ -68,7 +65,8 @@ async function createStm32Simulator(deviceID) {
     const runningHoursTopic = `devices/running_hours/${deviceID}`;
     const scheduleTopic = `devices/schedules/${deviceID}`;
     const consumptionTopic = `devices/consumption/${deviceID}`;
-
+    const registeredTopic = `devices/registered/${deviceID}`;
+    const provisioningUrl = "http://influxdb.flamware.work/influxdb/provisioning/";
     // Simulation rate
     const SIMULATION_SECONDS_PER_HOUR = 1;
     const DATA_PUBLISH_INTERVAL_MS = 5000;
@@ -104,7 +102,7 @@ async function createStm32Simulator(deviceID) {
         component_subtype: 'LED',
         component_status: 'warning',
         current_running_hours: 0,
-    }, ];
+    }];
 
     components.forEach(comp => {
         comp.component_id = `${deviceID}-${comp.component_name}`;
@@ -117,14 +115,10 @@ async function createStm32Simulator(deviceID) {
     let isFollowingSchedule = false;
     let deviceSchedules = [];
 
-    // --- PROVISIONING STEP ---
-    try {
-        const provisioningToken = await getProvisioningToken(deviceID, API_PROVISIONING_URL);
-        dataService.setAuthToken(provisioningToken);
-    } catch (error) {
-        logger.error(`Failed to provision device ${deviceID}. Simulator will not start.`);
-        return; // Exit if provisioning fails
-    }
+    let heartbeatInterval;
+    let dataMonitoringInterval;
+    let consumptionInterval;
+    let scheduleCheckInterval;
 
     const connectOptions = {
         clientId: deviceID,
@@ -143,10 +137,6 @@ async function createStm32Simulator(deviceID) {
     };
 
     const client = mqtt.connect(mqttBroker, connectOptions);
-    let heartbeatInterval;
-    let dataMonitoringInterval;
-    let consumptionInterval;
-    let scheduleCheckInterval;
 
     /**
      * Publishes a configuration alert message with a specific component ID.
@@ -161,8 +151,6 @@ async function createStm32Simulator(deviceID) {
             timestamp: new Date().toISOString()
         };
         const alertTopic = `${alertTopicBase}/${deviceID}`;
-        console.log("alertPayload",alertPayload)
-        console.log("Alert Topic", alertTopic)
         client.publish(alertTopic, JSON.stringify(alertPayload), {
             qos: 1
         });
@@ -173,72 +161,80 @@ async function createStm32Simulator(deviceID) {
      * Checks all components for configuration errors and publishes alerts.
      * @returns {boolean} True if all components have a complete configuration, false otherwise.
      */
-    function handleConfigurationErrors() {
+    function hasCompleteConfiguration() {
         for (const comp of components) {
             if (!comp.max_running_hours) {
-                const message = `Configuration incomplete: Component is missing 'max_running_hours'.`;
-                publishConfigurationAlert(comp.component_id, message);
+                publishConfigurationAlert(comp.component_id, `Configuration incomplete: Component is missing 'max_running_hours'.`);
                 return false;
             }
-            if (comp.component_type === 'sensor') {
-                if (comp.min_threshold === undefined) {
-                    const message = `Configuration incomplete: Sensor is missing 'min_threshold'.`;
-                    publishConfigurationAlert(comp.component_id, message);
-                    return false;
-                }
-                if (comp.max_threshold === undefined) {
-                    const message = `Configuration incomplete: Sensor is missing 'max_threshold'.`;
-                    publishConfigurationAlert(comp.component_id, message);
-                    return false;
-                }
+            if (comp.component_type === 'sensor' && (comp.min_threshold === undefined || comp.max_threshold === undefined)) {
+                publishConfigurationAlert(comp.component_id, `Configuration incomplete: Sensor is missing 'min_threshold' or 'max_threshold'.`);
+                return false;
             }
         }
         return true;
     }
 
-    client.on('connect', () => {
-        logger.info(`${deviceID} connected to MQTT broker`);
-        deviceStatus = 'online';
-        mqttService.publishAvailability(client, deviceID, availabilityTopic, components, deviceStatus);
-        mqttService.publishDeviceStatus(client, deviceID, statusTopic, deviceStatus, true);
-        client.subscribe(configTopic, { qos: 1 });
-        client.subscribe(commandsTopic, { qos: 1 });
-        client.subscribe(scheduleTopic, { qos: 1 });
+    /**
+     * Starts the device simulator's data monitoring and consumption intervals.
+     */
+    function startDevice() {
+        if (!hasCompleteConfiguration()) {
+            return;
+        }
 
-        // Heartbeat
-        heartbeatInterval = setInterval(() => {
-            mqttService.publishHeartbeat(client, deviceID, heartbeatTopic, deviceStatus);
-        }, 5000);
+        if (deviceStatus === 'running' || deviceStatus === 'running_plan') {
+            return;
+        }
 
-        // Start sending power consumption immediately
+        logger.info(`${deviceID} Starting data monitoring and consumption.`);
+
+        // Clear any existing intervals to prevent duplication
+        if (dataMonitoringInterval) clearInterval(dataMonitoringInterval);
+        if (consumptionInterval) clearInterval(consumptionInterval);
+
+        // Start sending component data
+        dataMonitoringInterval = setInterval(() => {
+            dataService.publishComponentData(client, deviceID, deviceLocation, components, SIMULATED_HOURS_PER_INTERVAL, alertTopicBase, runningHoursTopic);
+        }, DATA_PUBLISH_INTERVAL_MS);
+
+        // Start sending power consumption data
         consumptionInterval = setInterval(() => {
             dataService.publishConsumptionData(client, deviceID, consumptionTopic);
         }, DATA_PUBLISH_INTERVAL_MS);
+    }
 
-        // Schedule checking remains optional
-        scheduleCheckInterval = setInterval(() => {
-            if (isFollowingSchedule) {
-                logger.info(`${deviceID} Checking schedule...`);
-                const shouldRun = handleSchedule(deviceSchedules);
-                const isCurrentlyRunning = (deviceStatus === 'running' || deviceStatus === 'running_plan');
+    /**
+     * Stops all active simulator intervals and updates the device status.
+     * @param {string} newStatus The new status to set after stopping.
+     */
+    function stopDevice(newStatus) {
+        if (dataMonitoringInterval) {
+            clearInterval(dataMonitoringInterval);
+            dataMonitoringInterval = null;
+        }
+        if (consumptionInterval) {
+            clearInterval(consumptionInterval);
+            consumptionInterval = null;
+        }
 
-                if (shouldRun) {
-                    if (handleConfigurationErrors() && !isCurrentlyRunning) {
-                        startDataMonitoring();
-                        deviceStatus = 'running_plan';
-                        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running_plan', false);
-                        logger.info(`${deviceID} starting based on schedule.`);
-                    }
-                } else if (!shouldRun && isCurrentlyRunning) {
-                    clearInterval(dataMonitoringInterval);
-                    deviceStatus = 'stopped_plan';
-                    mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'stopped_plan', false);
-                    logger.info(`${deviceID} stopping as it's outside of a schedule.`);
-                }
-            }
-        }, 10000);
+        deviceStatus = newStatus;
+        mqttService.publishDeviceStatus(client, deviceID, statusTopic, newStatus, false);
+        logger.info(`${deviceID} stopped. Status set to '${newStatus}'.`);
+    }
+
+    client.on('connect', () => {
+        logger.info(`${deviceID} connected to MQTT broker`);
+        // Publish availability and status immediately upon connect
+        mqttService.publishAvailability(client, deviceID, availabilityTopic, components, 'online');
+        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'online', true);
+
+        // Subscribe to relevant topics
+        client.subscribe(configTopic, { qos: 1 });
+        client.subscribe(commandsTopic, { qos: 1 });
+        client.subscribe(scheduleTopic, { qos: 1 });
+        client.subscribe(registeredTopic, { qos: 1 });
     });
-
 
     client.on('message', (topic, message) => {
         const payloadString = message.toString();
@@ -246,123 +242,113 @@ async function createStm32Simulator(deviceID) {
             const payload = JSON.parse(payloadString);
             logger.info(`${deviceID} Message received on ${topic}: ${payloadString}`);
 
-            if (topic === configTopic) {
-                mqttService.handleDeviceConfig(components, payload);
-            } else if (topic === commandsTopic) {
-                const {
-                    command,
-                    component_id,
-                    location_id
-                } = payload;
-                switch (command) {
-                    case 'Start':
-                        isFollowingSchedule = false;
-                        if (location_id) {
-                            if (handleConfigurationErrors()) {
-                                monitoringLocationId = location_id;
-                                deviceLocation = monitoringLocationId.toString();
-                                if (deviceStatus !== 'running') {
-                                    startDataMonitoring();
-                                    deviceStatus = 'running';
-                                    mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'Running', false);
-                                    logger.info(`${deviceID} started manually.`);
-                                }
-                            } else {
-                                // The error message and alert are handled by handleConfigurationErrors()
-                            }
+            switch (topic) {
+                case registeredTopic:
+                    getProvisioningToken(deviceID,provisioningUrl).then(token => {
+                        if (token) {
+                            // Store the token for future use
+                            dataService.setAuthToken(token);
+                            authToken = token; // Set the global authToken variable
+                            logger.info(`${deviceID} Provisioning token received and stored.`);
                         } else {
-                            logger.error(`${deviceID} 'Start' command received without 'location_id'.`);
+                            logger.error(`${deviceID} Failed to obtain provisioning token.`);
                         }
-                        break;
-                    case 'Stop':
-                        isFollowingSchedule = false;
-                        if (dataMonitoringInterval) {
-                            clearInterval(dataMonitoringInterval);
-                            clearInterval(consumptionInterval);
-                            monitoringLocationId = null;
-                            if (deviceStatus === 'running' || deviceStatus === 'running_plan') {
-                                deviceStatus = 'online';
-                                mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'Online', false);
-                                logger.info(`${deviceID} stopped manually.`);
-                            }
-                        } else {
-                            logger.info(`${deviceID} already stopped.`);
-                        }
-                        break;
-                    case 'Follow_Schedule':
-                        isFollowingSchedule = true;
-                        logger.info(`${deviceID} now following schedule plan.`);
+                    }).catch(error => {
+                        logger.error(`${deviceID} Error obtaining provisioning token: ${error.message}`);
+                    });
+                    logger.info(`${deviceID} has been registered by the server. Starting operations.`);
+                    deviceStatus = 'online';
 
-                        const shouldRunNow = handleSchedule(deviceSchedules);
-                        const isCurrentlyRunning = (deviceStatus === 'running' || deviceStatus === 'running_plan');
+                    // Start the operational loops only after registration confirmation
+                    heartbeatInterval = setInterval(() => {
+                        mqttService.publishHeartbeat(client, deviceID, heartbeatTopic, deviceStatus);
+                    }, 5000);
 
-                        if (shouldRunNow) {
-                            if (handleConfigurationErrors()) {
-                                if (!isCurrentlyRunning) {
-                                    startDataMonitoring();
-                                    deviceStatus = 'running_plan';
-                                    mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running_plan', false);
-                                    logger.info(`${deviceID} started immediately based on the schedule.`);
-                                } else {
-                                    logger.info(`${deviceID} is already running, no change needed.`);
-                                }
-                            } else {
-                                // The error message and alert are handled by handleConfigurationErrors()
-                            }
-                        } else {
-                            // The schedule says no, and the device should stop or stay stopped
-                            if (isCurrentlyRunning) {
-                                clearInterval(dataMonitoringInterval);
-                                clearInterval(consumptionInterval);
-                                logger.info(`${deviceID} stopped because the schedule says no.`);
-                            }
-                            deviceStatus = 'stopped_plan';
-                            mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'stopped_plan', false);
-                        }
-                        break;
-                    case 'reset':
-                        mqttService.handleResetComponentTimer(client, deviceID, statusTopic, components, component_id);
-                        break;
-                    default:
-                        logger.warn(`${deviceID} Unknown command received: ${command}.`);
-                        break;
-                }
-            } else if (topic === scheduleTopic) {
-                deviceSchedules = payload.schedules;
-                logger.info(`${deviceID} schedules updated. Total schedules: ${deviceSchedules.length}`);
-
-                if (isFollowingSchedule) {
-                    const shouldRunNow = handleSchedule(deviceSchedules);
-                    const isCurrentlyRunning = (deviceStatus === 'running' || deviceStatus === 'running_plan');
-
-                    if (shouldRunNow) {
-                        if (handleConfigurationErrors()) {
-                            if (!isCurrentlyRunning) {
-                                startDataMonitoring();
+                    scheduleCheckInterval = setInterval(() => {
+                        if (isFollowingSchedule) {
+                            logger.info(`${deviceID} Checking schedule...`);
+                            const shouldRun = handleSchedule(deviceSchedules);
+                            if (shouldRun) {
+                                startDevice();
                                 deviceStatus = 'running_plan';
                                 mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running_plan', false);
-                                logger.info(`${deviceID} started based on the new schedule.`);
+                                logger.info(`${deviceID} starting based on schedule.`);
                             } else {
-                                logger.info(`${deviceID} is already running, no change needed.`);
+                                stopDevice('stopped_plan');
+                                logger.info(`${deviceID} stopping as it's outside of a schedule.`);
                             }
-                        } else {
-                            // The error message and alert are handled by handleConfigurationErrors()
                         }
-                    } else if (!shouldRunNow && isCurrentlyRunning) {
-                        clearInterval(dataMonitoringInterval);
-                        clearInterval(consumptionInterval);
-                        deviceStatus = 'stopped_plan';
-                        mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'stopped_plan', false);
-                        logger.info(`${deviceID} stopped based on the new schedule.`);
-                    } else if (!shouldRunNow && !isCurrentlyRunning) {
-                        logger.info(`${deviceID} is already stopped, no change needed.`);
+                    }, 10000);
+                    break;
+                case configTopic:
+                    mqttService.handleDeviceConfig(components, payload);
+                    break;
+                case commandsTopic:
+                    const { command, component_id, location_id } = payload;
+                    isFollowingSchedule = false; // Manual command overrides schedule following
+                    switch (command) {
+                        case 'Start':
+                            if (!location_id) {
+                                logger.error(`${deviceID} 'Start' command received without 'location_id'.`);
+                                return;
+                            }
+                            monitoringLocationId = location_id;
+                            deviceLocation = monitoringLocationId.toString();
+                            startDevice();
+                            deviceStatus = 'running';
+                            mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'Running', false);
+                            logger.info(`${deviceID} started manually.`);
+                            break;
+                        case 'Stop':
+                            stopDevice('online');
+                            break;
+                        case 'Follow_Schedule':
+                            isFollowingSchedule = true;
+                            logger.info(`${deviceID} now following schedule plan.`);
+                            const shouldRunNow = handleSchedule(deviceSchedules);
+                            if (shouldRunNow) {
+                                startDevice();
+                                deviceStatus = 'running_plan';
+                                mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running_plan', false);
+                                logger.info(`${deviceID} started immediately based on the schedule.`);
+                            } else {
+                                stopDevice('stopped_plan');
+                                logger.info(`${deviceID} stopped because the schedule says no.`);
+                            }
+                            break;
+                        case 'reset':
+                            mqttService.handleResetComponentTimer(client, deviceID, statusTopic, components, component_id);
+                            break;
+                        default:
+                            logger.warn(`${deviceID} Unknown command received: ${command}.`);
+                            break;
                     }
-                }
+                    break;
+                case scheduleTopic:
+                    deviceSchedules = payload.schedules;
+                    logger.info(`${deviceID} schedules updated. Total schedules: ${deviceSchedules.length}`);
+                    if (isFollowingSchedule) {
+                        const shouldRunNow = handleSchedule(deviceSchedules);
+                        if (shouldRunNow) {
+                            startDevice();
+                            deviceStatus = 'running_plan';
+                            mqttService.publishDeviceStatus(client, deviceID, statusTopic, 'running_plan', false);
+                            logger.info(`${deviceID} started based on the new schedule.`);
+                        } else {
+                            stopDevice('stopped_plan');
+                            logger.info(`${deviceID} stopped based on the new schedule.`);
+                        }
+                    }
+                    break;
+                default:
+                    logger.warn(`${deviceID} Message received on unexpected topic: ${topic}.`);
+                    break;
             }
         } catch (error) {
             logger.error(`${deviceID} Error parsing message on ${topic}: ${error}`);
         }
     });
+
     client.on('error', (error) => {
         logger.error(`${deviceID} MQTT Error: ${error}`);
     });
@@ -371,25 +357,12 @@ async function createStm32Simulator(deviceID) {
         logger.info(`${deviceID} disconnected from MQTT broker`);
         deviceStatus = 'offline';
         monitoringLocationId = null;
-        clearInterval(dataMonitoringInterval);
-        clearInterval(consumptionInterval);
-        clearInterval(heartbeatInterval);
-        clearInterval(scheduleCheckInterval);
+        // Clear all intervals on disconnect
+        if (dataMonitoringInterval) clearInterval(dataMonitoringInterval);
+        if (consumptionInterval) clearInterval(consumptionInterval);
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        if (scheduleCheckInterval) clearInterval(scheduleCheckInterval);
     });
-
-    function startDataMonitoring() {
-        if (dataMonitoringInterval) {
-            clearInterval(dataMonitoringInterval);
-        }
-        if (consumptionInterval) {
-            clearInterval(consumptionInterval);
-        }
-        logger.info(`${deviceID} Starting data monitoring.`);
-        dataMonitoringInterval = setInterval(() => {
-            dataService.publishComponentData(client, deviceID, deviceLocation, components, SIMULATED_HOURS_PER_INTERVAL, alertTopicBase, runningHoursTopic);
-        }, DATA_PUBLISH_INTERVAL_MS);
-
-    }
 }
 
 module.exports = createStm32Simulator;
