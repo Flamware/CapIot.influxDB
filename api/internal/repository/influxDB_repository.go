@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
+// Global constant for the API limit, matching the frontend's MAX_POINTS
+const MAX_API_QUERY_POINTS = 15000
+
 // Repository Interface
 type Repository interface {
 	WriteSensorData(ctx context.Context, data models.SensorData) error
@@ -19,7 +23,8 @@ type Repository interface {
 	CreateBucket(ctx context.Context, name string) error
 	Query(query models.QueryRequest) ([]models.SensorQueryResponse, error)
 	WriteConsumptionData(ctx context.Context, req models.ConsumptionReq) error
-	QueryConsumptionData(ctx context.Context, id string, metrics []string, start string, stop string) ([]models.ConsumptionQueryResponse, error)
+	// Signature mise à jour pour utiliser models.ConsumptionQueryRequest
+	QueryConsumptionData(ctx context.Context, req models.ConsumptionQueryRequest) ([]models.ConsumptionQueryResponse, error)
 }
 
 // InfluxDBRepository is a repository for writing data to InfluxDB.
@@ -94,7 +99,7 @@ func (r *InfluxDBRepository) BucketExists(ctx context.Context, name string) (boo
 	// The FindBucketByName method requires a context.
 	_, err := bucketsAPI.FindBucketByName(ctx, name)
 	if err != nil {
-		if err.Error() == "not found" { // Check the error message
+		if strings.Contains(err.Error(), "not found") { // Check if error indicates not found
 			return false, nil // Return false, nil on "not found"
 		}
 		return false, fmt.Errorf("error checking bucket existence: %w", err)
@@ -166,7 +171,7 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
        |> filter(fn: (r) => r["_measurement"] == "sensor_data")
        |> filter(fn: (r) => r["device_id"] == "%s")
        |> filter(fn: (r) => %s)
-       |> aggregateWindow(every: %s, fn: mean, createEmpty: false)
+       |> aggregateWindow(every: %s, fn: mean, createEmpty: true)
        |> yield(name: "mean")
     `, bucketName, rangeClause, req.DeviceID, fieldFilterClause, req.WindowPeriod)
 	log.Printf("Executing InfluxDB query: %s", fluxQuery)
@@ -195,6 +200,9 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 			deviceID = id
 		}
 		var locationIDStr string
+		// Note: Location tag is not guaranteed in sensor_data measurement based on WriteSensorData.
+		// If LocationID is used as the Bucket Name, this tag might not exist.
+		// We'll rely on the field name/value for data processing.
 		if loc, ok := record.ValueByKey("location").(string); ok {
 			locationIDStr = loc
 		}
@@ -203,15 +211,27 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 		if f, ok := record.ValueByKey("_field").(string); ok {
 			field = f
 		}
-		if value, ok := record.ValueByKey("_value").(float64); ok {
-			reading["value"] = value
-		} else if valueInt, ok := record.ValueByKey("_value").(int64); ok {
-			reading["value"] = float64(valueInt)
+		// Handle null values from aggregateWindow(createEmpty: true)
+		if value := record.ValueByKey("_value"); value != nil {
+			if valueFloat, ok := value.(float64); ok {
+				reading["value"] = valueFloat
+			} else if valueInt, ok := value.(int64); ok {
+				reading["value"] = float64(valueInt)
+			} else {
+				reading["value"] = nil // Ensure nil for non-numeric/unknown types from aggregation
+			}
+		} else {
+			reading["value"] = nil // Explicitly set nil for nulls returned by createEmpty: true
 		}
 
 		if _, ok := groupedData[deviceID]; !ok {
 			groupedData[deviceID] = make(map[string]map[string][]map[string]interface{})
 		}
+		// Grouping by locationIDStr might be empty if the 'location' tag is missing, using a default key based on bucketName
+		if locationIDStr == "" {
+			locationIDStr = bucketName // Use the bucket name as a fallback location identifier
+		}
+
 		if _, ok := groupedData[deviceID][locationIDStr]; !ok {
 			groupedData[deviceID][locationIDStr] = make(map[string][]map[string]interface{})
 		}
@@ -222,10 +242,9 @@ func (r *InfluxDBRepository) Query(req models.QueryRequest) ([]models.SensorQuer
 	}
 
 	// Format the grouped data into the SensorQueryResponse model
-	// Format the grouped data into the SensorQueryResponse model
 	var response []models.SensorQueryResponse
 	for deviceID, locationMap := range groupedData {
-		for _, fieldMap := range locationMap { // We don't need the locationID here anymore
+		for _, fieldMap := range locationMap { // We iterate over locations within a device
 			response = append(response, models.SensorQueryResponse{
 				DeviceID: deviceID,
 				Readings: fieldMap, // Directly assign fieldMap to Readings
@@ -285,12 +304,52 @@ func (r *InfluxDBRepository) WriteConsumptionData(ctx context.Context, req model
 }
 
 // QueryConsumptionData queries consumption data from InfluxDB and formats it as a nested structure.
-func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, id string, metrics []string, start string, stop string) ([]models.ConsumptionQueryResponse, error) {
+func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, req models.ConsumptionQueryRequest) ([]models.ConsumptionQueryResponse, error) {
 	queryAPI := r.client.QueryAPI(r.org)
 
-	if start == "" || stop == "" {
-		return nil, fmt.Errorf("time range start and stop must be provided")
+	// Check for all required fields in the request
+	if req.TimeRangeStart == "" || req.TimeRangeStop == "" || req.WindowPeriod == "" {
+		return nil, fmt.Errorf("time range start, stop, and window period must be provided")
 	}
+
+	// --- API Side Validation Logic (matching frontend) ---
+	// 1. Parse times
+	start, err := time.Parse(time.RFC3339, req.TimeRangeStart)
+	if err != nil {
+		return nil, fmt.Errorf("invalid time_range_start format: %w", err)
+	}
+	stop, err := time.Parse(time.RFC3339, req.TimeRangeStop)
+	if err != nil {
+		return nil, fmt.Errorf("invalid time_range_stop format: %w", err)
+	}
+
+	if start.After(stop) || start.Equal(stop) {
+		return nil, fmt.Errorf("time range start must be strictly before time range stop")
+	}
+
+	// 2. Parse window period (e.g., "1m", "5s")
+	window, err := time.ParseDuration(req.WindowPeriod)
+	if err != nil {
+		return nil, fmt.Errorf("invalid window_period format: %w", err)
+	}
+
+	if window <= 0 {
+		return nil, fmt.Errorf("window period must be positive")
+	}
+
+	// 3. Calculate total points
+	duration := stop.Sub(start)
+
+	// Calculate total points and round up (Ceil)
+	// We use float64 division to prevent overflow from large duration/window values
+	totalPoints := math.Ceil(float64(duration) / float64(window))
+
+	if totalPoints > float64(MAX_API_QUERY_POINTS) {
+		log.Printf("Query rejected: Total points requested (%.0f) exceeds limit (%d)", totalPoints, MAX_API_QUERY_POINTS)
+		return nil, fmt.Errorf("query too broad: requested points %.0f exceeds maximum API limit %d. Please adjust time range or window period", totalPoints, MAX_API_QUERY_POINTS)
+	}
+	log.Printf("Query validation passed. Total estimated points: %.0f (Max: %d)", totalPoints, MAX_API_QUERY_POINTS)
+	// --- End Validation Logic ---
 
 	// Build Flux query
 	fluxQuery := fmt.Sprintf(`
@@ -299,9 +358,9 @@ func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, id string
        |> filter(fn: (r) => r["_measurement"] == "consumption_data")
        |> filter(fn: (r) => r["device_id"] == "%s")
        |> filter(fn: (r) => %s)
-       |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+       |> aggregateWindow(every: %s, fn: mean, createEmpty: true) // createEmpty: true ensures nulls for missing periods
        |> yield(name: "mean")
-    `, "consumption_data", start, stop, id, createMetricFilterClause(metrics))
+    `, "consumption_data", req.TimeRangeStart, req.TimeRangeStop, req.DeviceID, createMetricFilterClause(req.Metrics), req.WindowPeriod)
 	log.Printf("Executing InfluxDB consumption query: %s", fluxQuery)
 
 	// Execute query
@@ -313,7 +372,7 @@ func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, id string
 
 	// Prepare the final response structure
 	response := models.ConsumptionQueryResponse{
-		DeviceID: id,
+		DeviceID: req.DeviceID,
 		Readings: make(map[string][]models.DataPoint),
 	}
 
@@ -321,16 +380,34 @@ func (r *InfluxDBRepository) QueryConsumptionData(ctx context.Context, id string
 		record := result.Record()
 		metricName := record.Field()
 		timestamp := record.Time()
-		value, ok := record.Value().(float64)
-		if !ok {
-			log.Printf("Skipping non-float64 value for metric %s", metricName)
-			continue
+
+		var valuePtr *float64 // Defaults to nil, representing JSON null
+
+		// Process value only if it is NOT nil (i.e., it's a real data point)
+		if v := record.Value(); v != nil {
+			var f float64
+			var ok bool
+
+			// Attempt to convert to float64
+			if f, ok = v.(float64); ok {
+				// Successfully converted to float64
+			} else if vInt, ok := v.(int64); ok {
+				// Converted from int64 to float64
+				f = float64(vInt)
+				ok = true
+			}
+
+			if ok {
+				// Assign a pointer to the actual value
+				valuePtr = &f
+			}
 		}
+		// If v was nil, valuePtr remains nil, which results in JSON null.
 
 		// Create a new data point
 		dataPoint := models.DataPoint{
 			Time:  timestamp,
-			Value: value,
+			Value: valuePtr, // This will be nil if the point was empty (JSON null)
 		}
 
 		// Append the data point to the correct metric slice

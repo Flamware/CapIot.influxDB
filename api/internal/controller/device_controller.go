@@ -167,23 +167,48 @@ func (c *DataController) HandleGetConsumptionData(w http.ResponseWriter, r *http
 	}
 
 	var req models.ConsumptionQueryRequest
+	query := r.URL.Query()
 
-	req.DeviceID = r.URL.Query().Get("device_id")
+	// 1. Device ID (Required)
+	req.DeviceID = query.Get("device_id")
 	if req.DeviceID == "" {
 		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "deviceID is required", nil, http.StatusBadRequest)
 		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	req.Metrics = r.URL.Query()["metric"]
+	// 2. Metrics (Required)
+	// Note: r.URL.Query()["metric"] handles multiple 'metric' parameters
+	req.Metrics = query["metric"]
 	if len(req.Metrics) == 0 {
-		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "At least one metric is required", nil, http.StatusBadRequest)
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "At least one metric is required (use 'metric=X&metric=Y')", nil, http.StatusBadRequest)
 		utils.RespondWithError(w, apiErr)
 		return
 	}
 
-	req.TimeRangeStart = r.URL.Query().Get("time_range_start")
-	req.TimeRangeStop = r.URL.Query().Get("time_range_stop")
+	// 3. Time Range Start (Required)
+	req.TimeRangeStart = query.Get("time_range_start")
+	if req.TimeRangeStart == "" {
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "time_range_start is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
+		return
+	}
+
+	// 4. Time Range Stop (Required)
+	req.TimeRangeStop = query.Get("time_range_stop")
+	if req.TimeRangeStop == "" {
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "time_range_stop is required", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
+		return
+	}
+
+	// 5. Window Period (CRITICAL: This line was missing)
+	req.WindowPeriod = query.Get("window_period")
+	if req.WindowPeriod == "" {
+		apiErr := models.NewAPIError(models.ErrorCodeMissingParameter, "window_period is required (e.g., '1h', '30m')", nil, http.StatusBadRequest)
+		utils.RespondWithError(w, apiErr)
+		return
+	}
 
 	data, err := c.service.GetConsumptionData(r.Context(), req)
 	if err != nil {

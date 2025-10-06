@@ -107,7 +107,7 @@ func (s *DataService) GetConsumptionData(ctx context.Context, req models.Consump
 	}
 
 	// Build the query for your repository layer
-	data, err := s.repo.QueryConsumptionData(ctx, req.DeviceID, req.Metrics, req.TimeRangeStart, req.TimeRangeStop)
+	data, err := s.repo.QueryConsumptionData(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error querying consumption data: %w", err)
 	}
