@@ -1,10 +1,10 @@
-Absolument. C'est une clarification essentielle pour les développeurs, car la configuration initiale d'InfluxDB 2.x se fait exclusivement via l'interface utilisateur web.
+C'est un excellent ajout au README \! Pour les utilisateurs de **WSL2** (qui utilisent généralement une distribution basée sur **Ubuntu/Debian**), les commandes que vous fournissez sont parfaites.
 
-J'ai mis à jour le README dans la section **4.2 Configuration Initiale InfluxDB** pour insister sur l'URL d'accès au panneau de configuration.
+Voici la section mise à jour pour le README de votre API InfluxDB, intégrant ces instructions détaillées d'installation sous forme de service `systemd` (géré par `service` ou `systemctl` sous WSL2).
 
 -----
 
-## 🚀 README: API InfluxDB (Mise à jour Finale)
+## 🚀 README: API InfluxDB (Mise à jour)
 
 Ce README fournit les étapes nécessaires pour configurer et exécuter le projet API InfluxDB.
 
@@ -16,9 +16,10 @@ Cette API se connecte à InfluxDB pour l'écriture et la lecture de données.
 
 #### **4.1 Installation du Serveur InfluxDB (sur WSL2 / Debian/Ubuntu)**
 
-Nous installons InfluxDB 2.x en tant que service en utilisant le dépôt officiel d'InfluxData.
+Nous allons installer InfluxDB 2.x en tant que service en utilisant le dépôt officiel d'InfluxData.
 
 1.  **Ajouter la clé et le dépôt InfluxData :**
+    Exécutez cette série de commandes pour importer la clé de chiffrement (pour vérifier l'authenticité des paquets) et ajouter le dépôt stable à votre liste de sources `apt`.
 
     ```bash
     # Télécharge et vérifie la clé, puis l'ajoute au trousseau gpg
@@ -30,37 +31,35 @@ Nous installons InfluxDB 2.x en tant que service en utilisant le dépôt officie
     ```
 
 2.  **Installer et Démarrer InfluxDB :**
+    Mettez à jour votre liste de paquets et installez InfluxDB 2 :
 
     ```bash
     # Met à jour la liste des paquets
     sudo apt-get update
     # Installe InfluxDB 2
     sudo apt-get install influxdb2
-    # Démarre le service
+    ```
+
+3.  **Démarrer le service :**
+    Démarrez le serveur InfluxDB. L'outil est désormais géré comme un service `systemd` (géré par `service` ou `systemctl` sous WSL2) :
+
+    ```bash
     sudo service influxdb start
     ```
 
 #### **4.2 Configuration Initiale InfluxDB**
 
-La configuration de l'organisation et la génération du token se font via l'interface web d'InfluxDB.
+Une fois le service démarré, vous devez effectuer la configuration initiale via l'interface web (généralement sur **`http://localhost:8086`**).
 
-1.  **Accéder à l'interface de configuration :**
-    Ouvrez votre navigateur web et accédez à l'URL suivante pour commencer la configuration (première exécution) :
+1.  **Organization :** Définissez l'organisation sur **`Technopure`**.
 
-    ```
-    http://localhost:8086/
-    ```
-
-2.  **Configuration de l'Organization et du Bucket :**
-
-    * Définissez l'**Organization** sur **`Technopure`**.
-    * Créez un bucket initial si nécessaire.
+2.  **Bucket :** Créez un bucket initial.
 
 3.  **Récupération du Token d'API :**
-    Le **Token d'API** est essentiel pour l'authentification de l'API Go.
+    Le **Token d'API** est essentiel pour l'authentification.
 
-    * Après l'initialisation, dans l'interface web, naviguez vers **Data \> API Tokens**.
-    * **Récupérez le token généré** (le *master token* initial) ou créez un nouveau token avec les autorisations appropriées sur l'organisation `Technopure`.
+    * Dans l'interface web d'InfluxDB, naviguez vers **Data \> API Tokens**.
+    * **Récupérez le token généré** (le *master token* initial) ou créez un nouveau token avec les autorisations de lecture/écriture appropriées sur l'organisation `Technopure`.
 
 -----
 
@@ -71,7 +70,7 @@ Vous devez avoir un fichier **`.env`** à la racine du dossier `api/cmd`. Ce fic
 > **Mettez à jour votre fichier `.env`** avec les variables suivantes :
 
 ```env
-INFLUXDB_TOKEN=VOTRE_TOKEN_RECUPERE_ICI
+INFLUXDB_TOKEN=//
 INFLUXDB_ORG=Technopure
 INFLUXDB_URL=http://localhost:8086
 API_URL=http://localhost:8080/api
@@ -87,7 +86,7 @@ API_URL=http://localhost:8080/api
     ```
 2.  **Run the Application:**
     ```bash
-    go run server.go
+    go run server.go # Ou le fichier d'entrée de votre application
     ```
 
 -----
