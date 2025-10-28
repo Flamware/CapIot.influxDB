@@ -55,7 +55,7 @@ async function createStm32Simulator(deviceID) {
     });
 
     // MQTT config
-    const mqttBroker = 'mqtt://localhost:1883';
+    const mqttBroker = 'mqtt://mqtt.flamware.work:1883';
     const availabilityTopic = `devices/available/${deviceID}`;
     const statusTopic = `devices/status/${deviceID}`;
     const heartbeatTopic = `devices/heartbeat/${deviceID}`;
@@ -66,7 +66,7 @@ async function createStm32Simulator(deviceID) {
     const scheduleTopic = `devices/schedules/${deviceID}`;
     const consumptionTopic = `devices/consumption/${deviceID}`;
     const registeredTopic = `devices/registered/${deviceID}`;
-    const provisioningUrl = "http://localhost:8000/influxdb/provisioning";
+    const provisioningUrl = "https://flamware.work/influxdb/provisioning";
     // Simulation rate
     const SIMULATION_SECONDS_PER_HOUR = 1;
     const DATA_PUBLISH_INTERVAL_MS = 5000;
