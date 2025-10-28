@@ -2,11 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: influxdb-deployment
-  namespace: capiot # This Deployment will be in the 'capiot' namespace
+  namespace: capiot
   labels:
     app: influxdb
 spec:
-  replicas: 1 # For production, consider StatefulSet for better state management
+  replicas: 1
   selector:
     matchLabels:
       app: influxdb
@@ -17,11 +17,11 @@ spec:
     spec:
       containers:
         - name: influxdb
-          image: influxdb:2.7.0 # Using a specific stable version
+          image: influxdb:2.7.0
           ports:
-            - containerPort: 8086 # Default InfluxDB HTTP API port
+            - containerPort: 8086
           env:
-            # Initial setup variables - retrieved from Secrets
+            # Initial setup variables - retrieved from Secrets (assumes influxdb-creds and influxdb-org-bucket are applied)
             - name: DOCKER_INFLUXDB_INIT_MODE
               value: "setup"
             - name: DOCKER_INFLUXDB_INIT_USERNAME
@@ -37,32 +37,31 @@ spec:
             - name: DOCKER_INFLUXDB_INIT_ORG
               valueFrom:
                 secretKeyRef:
-                  name: influxdb-org-bucket
+                  name: influxdb-creds
                   key: INFLUXDB_ORG
             - name: DOCKER_INFLUXDB_INIT_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: influxdb-org-bucket
+                  name: influxdb-creds
                   key: INFLUXDB_BUCKET
             - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: influxdb-creds
                   key: INFLUXDB_ADMIN_TOKEN
-            # Optional: data retention (e.g., 30 days)
-            # - name: DOCKER_INFLUXDB_INIT_RETENTION
-            #   value: "30d"
           volumeMounts:
             - name: influxdb-storage
-              mountPath: /var/lib/influxdb2 # Standard InfluxDB data directory
-          resources: # Recommended: set resource requests and limits
+              mountPath: /var/lib/influxdb2
+          resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              # *** FURTHER REDUCED MEMORY REQUESTS TO RESOLVE FAILED SCHEDULING ***
+              memory: "128Mi"
+              cpu: "100m"
             limits:
-              memory: "1Gi"
-              cpu: "500m"
+              # Keep limits tight to avoid exhausting cluster resources
+              memory: "256Mi"
+              cpu: "300m"
       volumes:
         - name: influxdb-storage
           persistentVolumeClaim:
-            claimName: influxdb-data-pvc # Refers to the PVC created above
+            claimName: influxdb-data-pvc

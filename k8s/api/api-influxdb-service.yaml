@@ -6,10 +6,11 @@ metadata:
   labels:
     app: capiot-influxdb-api
 spec:
-  type: ClusterIP # Changed to ClusterIP
+  type: NodePort
   selector:
     app: capiot-influxdb-api
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 8080 # Corrected to 8080 to match your container
+      port: 80       # Port interne du service
+      targetPort: 8000  # Port sur le pod
+      nodePort: 30082   # Choisis un NodePort unique dans la plage 30000-32767

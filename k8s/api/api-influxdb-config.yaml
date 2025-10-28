@@ -4,4 +4,4 @@ metadata:
   name: api-influxdb-config
   namespace: capiot
 data:
-  API_URL: "http://api.flamware.work/api"
+  API_URL: "https://flamware.work/api"

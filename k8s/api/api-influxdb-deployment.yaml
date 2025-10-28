@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: capiot-influxdb-api
-          image: flamware/capiot-influxdb-api:test
+          image: flamware/capiot-influxdb-api:20251026135033-e744d627
           ports:
             - containerPort: 8000 # IMPORTANT: Verify your API listens on this port
           env:
